@@ -147,7 +147,7 @@ export default function LoginPage() {
 
           <div className="mt-6 border-t border-slate-100 pt-4 text-center">
             <p className="text-[11px] text-slate-400">
-              Devplux (Pvt) Ltd — PV-00289144 | Multi-Director Governance
+              Devplux (Pvt) Ltd | Multi-Director Governance
             </p>
           </div>
         </div>
