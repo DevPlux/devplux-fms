@@ -126,8 +126,18 @@ export function clearStoredDirector() {
   }
 }
 
+let isHookHydrated = false;
+
 export function useCurrentDirector() {
   const [director, setDirector] = useState<CurrentDirector>(() => {
+    if (!isHookHydrated) {
+      return {
+        id: '',
+        name: '',
+        email: '',
+        role: 'Director',
+      };
+    }
     const stored = getStoredDirector();
     if (stored) return stored;
     return {
@@ -137,10 +147,18 @@ export function useCurrentDirector() {
       role: 'Director',
     };
   });
-  const [loading, setLoading] = useState<boolean>(() => !getStoredDirector());
+  const [loading, setLoading] = useState<boolean>(() => !isHookHydrated || !getStoredDirector());
 
   useEffect(() => {
+    isHookHydrated = true;
     let isMounted = true;
+
+    // Immediately resolve stored identity if present upon hydration
+    const stored = getStoredDirector();
+    if (stored && isMounted) {
+      setDirector(stored);
+      setLoading(false);
+    }
 
     async function load() {
       try {

@@ -21,8 +21,20 @@ interface DirectorProfile {
   mustChangePassword?: boolean;
 }
 
+let isProfileHydrated = false;
+
 export default function ProfilePage() {
   const [profile, setProfile] = useState<DirectorProfile>(() => {
+    if (!isProfileHydrated) {
+      return {
+        id: '',
+        name: '',
+        email: '',
+        role: 'Director',
+        sharePercentage: '20.00%',
+        capitalContributed: 'LKR 0.00',
+      };
+    }
     const stored = getStoredDirector();
     return {
       id: stored?.id || '',
@@ -33,7 +45,7 @@ export default function ProfilePage() {
       capitalContributed: 'LKR 0.00',
     };
   });
-  const [isLoading, setIsLoading] = useState(() => !getStoredDirector());
+  const [isLoading, setIsLoading] = useState(() => !isProfileHydrated || !getStoredDirector());
 
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
@@ -42,7 +54,21 @@ export default function ProfilePage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   useEffect(() => {
+    isProfileHydrated = true;
     let isMounted = true;
+
+    // Immediately sync stored identity upon client hydration
+    const stored = getStoredDirector();
+    if (stored && isMounted && !profile.name) {
+      setProfile((prev) => ({
+        ...prev,
+        id: stored.id,
+        name: stored.name,
+        email: stored.email,
+        role: stored.role || 'Director',
+      }));
+      setIsLoading(false);
+    }
 
     const fetchCurrentProfile = async () => {
       try {

@@ -22,6 +22,9 @@ interface DashboardLayoutProps {
   userEmail?: string;
 }
 
+// Global client hydration tracker across route changes
+let isLayoutHydrated = false;
+
 export const DashboardLayout: React.FC<DashboardLayoutProps> = ({
   children,
   pageTitle,
@@ -35,15 +38,21 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({
   const [isMobileOpen, setIsMobileOpen] = useState(false);
 
   // Synchronously initialize director profile from persistent memory/storage cache
-  // Eliminates all 100-300ms network lag / flicker during tab transitions
+  // Eliminates all 100-300ms network lag / flicker during tab transitions without SSR hydration mismatch
   const [currentRole, setCurrentRole] = useState<DirectorRole>(userRole || 'director');
   const [currentName, setCurrentName] = useState<string>(() => {
+    if (!isLayoutHydrated) {
+      return userName && !userName.toLowerCase().startsWith('director') ? userName : '';
+    }
     if (userName && !userName.toLowerCase().startsWith('director')) return userName;
     const stored = getStoredDirector();
     if (stored?.name && !stored.name.toLowerCase().startsWith('director')) return stored.name;
     return userName || '';
   });
   const [currentEmail, setCurrentEmail] = useState<string>(() => {
+    if (!isLayoutHydrated) {
+      return userEmail && userEmail !== 'director@devplux.com' ? userEmail : '';
+    }
     if (userEmail && userEmail !== 'director@devplux.com') return userEmail;
     const stored = getStoredDirector();
     if (stored?.email) return stored.email;
@@ -52,6 +61,14 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({
 
   useEffect(() => {
     let isMounted = true;
+    isLayoutHydrated = true;
+
+    // Immediately resolve stored identity if present upon hydration
+    const stored = getStoredDirector();
+    if (stored?.name && !currentName) {
+      setCurrentName(stored.name);
+      if (stored.email) setCurrentEmail(stored.email);
+    }
 
     const loadAuthUser = async () => {
       try {

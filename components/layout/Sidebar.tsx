@@ -37,6 +37,9 @@ interface SidebarProps {
   onCloseMobile?: () => void;
 }
 
+// Global client hydration tracker that remains true after initial client hydration pass
+let isSidebarHydrated = false;
+
 export const Sidebar: React.FC<SidebarProps> = ({
   userRole = 'director',
   userName = '',
@@ -49,15 +52,22 @@ export const Sidebar: React.FC<SidebarProps> = ({
 }) => {
   const pathname = usePathname();
   const [pendingApprovalsCount, setPendingApprovalsCount] = useState<number>(0);
+  const [mounted, setMounted] = useState<boolean>(() => isSidebarHydrated);
 
-  // Synchronously resolve real director name with zero lag
-  const stored = getStoredDirector();
-  const effectiveName =
-    userName && !userName.toLowerCase().startsWith('director')
-      ? userName
-      : stored?.name && !stored.name.toLowerCase().startsWith('director')
-      ? stored.name
-      : userName || '';
+  useEffect(() => {
+    isSidebarHydrated = true;
+    setMounted(true);
+  }, []);
+
+  // Synchronously resolve real director name with zero lag; gate by mounted state to eliminate SSR hydration mismatch
+  const stored = mounted ? getStoredDirector() : null;
+  const effectiveName = mounted
+    ? (userName && !userName.toLowerCase().startsWith('director')
+        ? userName
+        : stored?.name && !stored.name.toLowerCase().startsWith('director')
+        ? stored.name
+        : userName || '')
+    : (userName && !userName.toLowerCase().startsWith('director') ? userName : '');
 
   useEffect(() => {
     const fetchPending = async () => {
@@ -293,6 +303,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           >
             <div className="flex items-center gap-2.5 overflow-hidden">
               <div
+                suppressHydrationWarning
                 title={effectiveName ? `${effectiveName} (${roleLabels[userRole] || userRole})` : 'Authenticated Director'}
                 className="w-8 h-8 rounded-full bg-slate-800 border border-slate-700 flex items-center justify-center text-xs font-bold text-white shrink-0"
               >
@@ -303,7 +314,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 )}
               </div>
               {(!isCollapsed || isMobileOpen) && (
-                <div className="truncate flex-1 min-w-0">
+                <div suppressHydrationWarning className="truncate flex-1 min-w-0">
                   {effectiveName ? (
                     <>
                       <p className="text-xs font-medium text-white truncate">{effectiveName}</p>
