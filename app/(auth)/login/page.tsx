@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { createClient } from '@/lib/supabase/client';
-import { ShieldCheck, AlertCircle } from 'lucide-react';
+import { ShieldCheck, AlertCircle, CheckCircle2 } from 'lucide-react';
 import { setStoredDirector, CANONICAL_MAP } from '@/lib/hooks/useCurrentDirector';
 
 export default function LoginPage() {
@@ -13,11 +13,13 @@ export default function LoginPage() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
+    setSuccessMessage(null);
     setIsLoading(true);
 
     try {
@@ -54,15 +56,19 @@ export default function LoginPage() {
           role: profile?.role || 'Director',
         });
 
-        if (profile?.must_change_password) {
-          router.push('/change-password');
-        } else {
-          router.push('/dashboard');
-        }
+        // Display corporate authorization success feedback
+        setSuccessMessage(`Login successful! Welcome, ${resolvedName}. Redirecting to ledger...`);
+
+        setTimeout(() => {
+          if (profile?.must_change_password) {
+            router.push('/change-password');
+          } else {
+            router.push('/dashboard');
+          }
+        }, 800);
       }
     } catch {
       setError('An unexpected connection error occurred. Please verify network status.');
-    } finally {
       setIsLoading(false);
     }
   };
@@ -91,9 +97,18 @@ export default function LoginPage() {
           </div>
 
           {error && (
-            <div className="mb-4 p-3 rounded-md bg-rose-50 border border-rose-200 flex items-start gap-2 text-xs text-rose-700">
+            <div className="mb-4 p-3 rounded-md bg-rose-50 border border-rose-200 flex items-start gap-2 text-xs text-rose-700 animate-in fade-in">
               <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
               <span>{error}</span>
+            </div>
+          )}
+
+          {successMessage && (
+            <div className="mb-4 p-3 rounded-md bg-emerald-50 border border-emerald-200 flex items-start gap-2 text-xs text-emerald-800 animate-in fade-in">
+              <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+              <div className="font-medium">
+                <span>{successMessage}</span>
+              </div>
             </div>
           )}
 
@@ -102,6 +117,7 @@ export default function LoginPage() {
               label="Director Corporate Email"
               type="email"
               required
+              disabled={Boolean(successMessage) || isLoading}
               placeholder="e.g. director1@devplux.com"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
@@ -111,14 +127,20 @@ export default function LoginPage() {
               label="Password"
               type="password"
               required
+              disabled={Boolean(successMessage) || isLoading}
               placeholder="••••••••••••"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
             />
 
             <div className="pt-2">
-              <Button type="submit" className="w-full" isLoading={isLoading}>
-                Authenticate as Director
+              <Button
+                type="submit"
+                className="w-full"
+                isLoading={isLoading}
+                disabled={Boolean(successMessage)}
+              >
+                {successMessage ? 'Authorized ✓ Redirecting...' : 'Authenticate as Director'}
               </Button>
             </div>
           </form>
