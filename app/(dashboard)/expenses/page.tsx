@@ -117,7 +117,7 @@ export default function ExpensesPage() {
           id: exp.id,
           referenceNo: exp.transactions?.reference_no || 'EXP-REF',
           date: exp.transactions?.transaction_date || exp.created_at?.split('T')[0],
-          category: exp.expense_categories?.name || 'General Operating',
+          category: exp.category || exp.category_name || exp.expense_categories?.name || 'General Operating',
           vendor: exp.vendor,
           projectDisplayId: exp.projects?.display_id || null,
           projectName: exp.projects?.name || 'Company-Wide Overhead',
@@ -176,12 +176,46 @@ export default function ExpensesPage() {
           receiptUrl: receiptUrl || null,
           description: description.trim() || `${vendor.trim()} - ${finalCategory}`,
           isPaid,
+          initiatorName: currentDirector.name || 'Director',
+          initiatorRole: 'Director',
         }),
       });
 
       const resData = await res.json();
       if (!res.ok) {
         throw new Error(resData.error || 'Failed to record expense in database.');
+      }
+
+      // Explicitly notify /api/approvals queue directly from client browser
+      try {
+        const expId = resData.expense?.id || `exp-${Date.now()}`;
+        const refNo = resData.transaction?.reference_no || `EXP-${Date.now()}`;
+        await fetch('/api/approvals', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            entityType: 'expense',
+            entityId: expId,
+            entityReference: refNo,
+            entityName: `${vendor.trim()} - ${finalCategory}`,
+            actionType: 'create',
+            initiatorName: currentDirector.name || 'Director',
+            initiatorRole: 'Director',
+            details: {
+              changesSummary: `New operating expense voucher (${refNo}) for ${vendor.trim()} recorded by ${currentDirector.name || 'Director'}. Amount: LKR ${amt.toLocaleString()}. Category: ${finalCategory}.`,
+              reason: description.trim() || `${vendor.trim()} - ${finalCategory}`,
+              after: {
+                amount: amt,
+                vendor: vendor.trim(),
+                category: finalCategory,
+                is_paid: isPaid,
+                transaction_id: resData.transaction?.id,
+              },
+            },
+          }),
+        });
+      } catch (appErr) {
+        console.warn('Notice syncing approval notice:', appErr);
       }
 
       await fetchExpensesAndProjects();
@@ -386,12 +420,21 @@ export default function ExpensesPage() {
             className="text-xs bg-slate-50 border border-slate-300 rounded-md px-2 py-1.5 text-slate-700"
           >
             <option value="all">All Categories</option>
-            <option value="Cloud Hosting & Infrastructure">Cloud Hosting & Infrastructure</option>
-            <option value="Software Subscriptions & Tools">Software Subscriptions & Tools</option>
-            <option value="Office & Utilities">Office & Utilities</option>
-            <option value="Marketing & Advertising">Marketing & Advertising</option>
-            <option value="Contractor & Professional Fees">Contractor & Professional Fees</option>
-            <option value="Transport & Travel">Transport & Travel</option>
+            {Array.from(
+              new Set([
+                'Cloud Hosting & Infrastructure',
+                'Software Subscriptions & Tools',
+                'Office & Utilities',
+                'Marketing & Advertising',
+                'Contractor & Professional Fees',
+                'Transport & Travel',
+                ...expenses.map((e) => e.category).filter(Boolean),
+              ])
+            ).map((cat) => (
+              <option key={cat} value={cat}>
+                {cat}
+              </option>
+            ))}
           </select>
         </div>
 

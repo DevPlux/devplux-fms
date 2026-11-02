@@ -18,7 +18,7 @@ export interface DirectorRecord {
 
 const CANONICAL_DIRECTORS: Array<Omit<DirectorRecord, 'id'>> = [
   {
-    name: 'MR. Chanuka',
+    name: 'Mr. Chanuka Lakshan',
     email: 'director1@devplux.com',
     role: 'director',
     roleTitle: 'Director',
@@ -28,7 +28,7 @@ const CANONICAL_DIRECTORS: Array<Omit<DirectorRecord, 'id'>> = [
     isActive: true,
   },
   {
-    name: 'MR. Lakindu',
+    name: 'Mr. Lakindu Udara',
     email: 'director2@devplux.com',
     role: 'director',
     roleTitle: 'Director',
@@ -38,7 +38,7 @@ const CANONICAL_DIRECTORS: Array<Omit<DirectorRecord, 'id'>> = [
     isActive: true,
   },
   {
-    name: 'MR. Janindu',
+    name: 'Mr. Janindu Chamoth',
     email: 'director3@devplux.com',
     role: 'director',
     roleTitle: 'Director',
@@ -48,7 +48,7 @@ const CANONICAL_DIRECTORS: Array<Omit<DirectorRecord, 'id'>> = [
     isActive: true,
   },
   {
-    name: 'Mr. Harsha',
+    name: 'Mr. Harsha Chathuranga',
     email: 'director4@devplux.com',
     role: 'director',
     roleTitle: 'Director',
@@ -58,7 +58,7 @@ const CANONICAL_DIRECTORS: Array<Omit<DirectorRecord, 'id'>> = [
     isActive: true,
   },
   {
-    name: 'Mr. Amila',
+    name: 'Mr. Amila Lakshan',
     email: 'director5@devplux.com',
     role: 'director',
     roleTitle: 'Director',
@@ -70,11 +70,11 @@ const CANONICAL_DIRECTORS: Array<Omit<DirectorRecord, 'id'>> = [
 ];
 
 const CANONICAL_NAMES_BY_EMAIL: Record<string, string> = {
-  'director1@devplux.com': 'MR. Chanuka',
-  'director2@devplux.com': 'MR. Lakindu',
-  'director3@devplux.com': 'MR. Janindu',
-  'director4@devplux.com': 'Mr. Harsha',
-  'director5@devplux.com': 'Mr. Amila',
+  'director1@devplux.com': 'Mr. Chanuka Lakshan',
+  'director2@devplux.com': 'Mr. Lakindu Udara',
+  'director3@devplux.com': 'Mr. Janindu Chamoth',
+  'director4@devplux.com': 'Mr. Harsha Chathuranga',
+  'director5@devplux.com': 'Mr. Amila Lakshan',
 };
 
 export async function GET() {

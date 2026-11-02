@@ -26,18 +26,17 @@ export default function ReportsPage() {
   >('pl');
   const [period, setPeriod] = useState('2026-10');
 
-  // Profit and Loss Breakdown - Initialized Clean
-  const [revenueItems, setRevenueItems] = useState([
-    { name: 'Software Development Revenue (4010)', amount: 0 },
-    { name: 'Software Maintenance & API Services (4020)', amount: 0 },
+  // Profit and Loss Breakdown - Dynamically Linked
+  const [revenueItems, setRevenueItems] = useState<{ name: string; amount: number }[]>([
+    { name: 'Client Project Revenue Recognized', amount: 0 },
   ]);
 
-  const [expenseItems, setExpenseItems] = useState([
-    { name: 'Cloud Hosting & Infrastructure (5010)', amount: 0 },
-    { name: 'Domains & Software Subscriptions (5020)', amount: 0 },
-    { name: 'Contract Developer Costs (5030)', amount: 0 },
-    { name: 'Office & Operating Overhead (5040)', amount: 0 },
-    { name: 'Marketing & Transport (5050)', amount: 0 },
+  const [expenseItems, setExpenseItems] = useState<{ name: string; amount: number }[]>([
+    { name: 'Cloud Hosting & Infrastructure', amount: 0 },
+    { name: 'Software Subscriptions & Tools', amount: 0 },
+    { name: 'Office & Utilities', amount: 0 },
+    { name: 'Marketing & Advertising', amount: 0 },
+    { name: 'Contractor & Professional Fees', amount: 0 },
   ]);
 
   // Receivables Aging - Initialized Clean
@@ -48,7 +47,7 @@ export default function ReportsPage() {
       try {
         const supabase = createClient();
 
-        // 1. Fetch Projects for Receivables via robust API
+        // 1. Fetch Projects for Receivables and Revenue via robust API
         let projects: any[] = [];
         try {
           const res = await fetch('/api/projects');
@@ -83,11 +82,24 @@ export default function ReportsPage() {
           });
           setReceivablesData(mappedReceivables);
 
-          const totalProjectRev = projects.reduce((acc, p) => acc + Number(p.valid_payments_total || 0), 0);
-          setRevenueItems([
-            { name: 'Software Development Revenue (4010)', amount: totalProjectRev },
-            { name: 'Software Maintenance & API Services (4020)', amount: 0 },
-          ]);
+          // Map revenue dynamically by associated Project Name (NO generic codes like 4010)
+          const projectsWithRevenue = projects.filter((p) => Number(p.valid_payments_total || 0) > 0);
+          if (projectsWithRevenue.length > 0) {
+            setRevenueItems(
+              projectsWithRevenue.map((p) => ({
+                name: `${p.name} (${p.client_name || 'Client'})`,
+                amount: Number(p.valid_payments_total || 0),
+              }))
+            );
+          } else {
+            // Show active registered projects with 0.00 recognized revenue
+            setRevenueItems(
+              projects.map((p) => ({
+                name: `${p.name} (${p.client_name || 'Client'})`,
+                amount: 0,
+              }))
+            );
+          }
         }
 
         // 2. Fetch Expenses for P&L via robust API (ensures soft-deleted items are excluded)
@@ -105,36 +117,39 @@ export default function ReportsPage() {
         if (expensesList.length === 0) {
           const { data: dbExp } = await supabase
             .from('expenses')
-            .select('*, expense_categories(name), transactions(amount, status)');
+            .select('*, expense_categories(name), transactions(amount, status, description)');
           if (dbExp) {
             expensesList = dbExp.filter((e) => e.transactions?.status === 'posted');
           }
         }
 
         if (expensesList && expensesList.length > 0) {
-          let hosting = 0;
-          let subscriptions = 0;
-          let contractors = 0;
-          let office = 0;
-          let marketing = 0;
+          const categoryTotals: Record<string, number> = {};
 
-          expensesList.forEach((e) => {
-            const amt = Number(e.transactions?.amount || 0);
-            const cat = e.expense_categories?.name || '';
-            if (cat.includes('Hosting')) hosting += amt;
-            else if (cat.includes('Subscription') || cat.includes('Domain')) subscriptions += amt;
-            else if (cat.includes('Contractor')) contractors += amt;
-            else if (cat.includes('Office') || cat.includes('Utility')) office += amt;
-            else marketing += amt;
+          expensesList.forEach((e: any) => {
+            const amt = Number(e.transactions?.amount || e.amount || 0);
+            let catName = e.category || e.category_name;
+            if (!catName) {
+              const desc = String(e.transactions?.description || '');
+              const match = desc.match(/\[Category:\s*([^\]]+)\]/);
+              if (match && match[1]) {
+                catName = match[1].trim();
+              } else {
+                catName = e.expense_categories?.name || 'General Operating Overhead';
+              }
+            }
+            // Strip any numeric codes like (5010) or (5020)
+            catName = catName.replace(/\s*\(\d+\)/g, '').trim();
+
+            categoryTotals[catName] = (categoryTotals[catName] || 0) + amt;
           });
 
-          setExpenseItems([
-            { name: 'Cloud Hosting & Infrastructure (5010)', amount: hosting },
-            { name: 'Domains & Software Subscriptions (5020)', amount: subscriptions },
-            { name: 'Contract Developer Costs (5030)', amount: contractors },
-            { name: 'Office & Operating Overhead (5040)', amount: office },
-            { name: 'Marketing & Transport (5050)', amount: marketing },
-          ]);
+          const mappedExpenseItems = Object.entries(categoryTotals).map(([name, amount]) => ({
+            name,
+            amount,
+          }));
+
+          setExpenseItems(mappedExpenseItems);
         }
       } catch (err) {
         console.warn('Notice loading report data:', err);
@@ -151,7 +166,7 @@ export default function ReportsPage() {
   const handleExportPDF = () => {
     if (selectedReport === 'pl') {
       const rows = [
-        ...revenueItems.map((r) => ({ item: r.name, category: 'Revenue', amount: formatLKR(r.amount) })),
+        ...revenueItems.map((r) => ({ item: r.name, category: 'Operating Revenue', amount: formatLKR(r.amount) })),
         { item: 'TOTAL OPERATING REVENUE', category: 'Summary', amount: formatLKR(totalRevenue) },
         ...expenseItems.map((e) => ({ item: e.name, category: 'Operating Expense', amount: formatLKR(e.amount) })),
         { item: 'TOTAL OPERATING EXPENSES', category: 'Summary', amount: formatLKR(totalExpenses) },
@@ -201,9 +216,9 @@ export default function ReportsPage() {
   const handleExportExcel = () => {
     if (selectedReport === 'pl') {
       const data = [
-        ...revenueItems.map((r) => ({ Account: r.name, Category: 'Revenue', 'Amount (LKR)': r.amount })),
+        ...revenueItems.map((r) => ({ Account: r.name, Category: 'Operating Revenue', 'Amount (LKR)': r.amount })),
         { Account: 'TOTAL REVENUE', Category: 'Summary', 'Amount (LKR)': totalRevenue },
-        ...expenseItems.map((e) => ({ Account: e.name, Category: 'Expense', 'Amount (LKR)': e.amount })),
+        ...expenseItems.map((e) => ({ Account: e.name, Category: 'Operating Expense', 'Amount (LKR)': e.amount })),
         { Account: 'TOTAL EXPENSES', Category: 'Summary', 'Amount (LKR)': totalExpenses },
         { Account: 'NET PROFIT', Category: 'Final', 'Amount (LKR)': netProfit },
       ];

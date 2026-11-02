@@ -24,7 +24,7 @@ interface DirectorData {
 const DEFAULT_DIRECTORS: DirectorData[] = [
   {
     id: 'd1',
-    name: 'MR. Chanuka',
+    name: 'Mr. Chanuka Lakshan',
     email: 'director1@devplux.com',
     role: 'director',
     roleTitle: 'Director',
@@ -35,7 +35,7 @@ const DEFAULT_DIRECTORS: DirectorData[] = [
   },
   {
     id: 'd2',
-    name: 'MR. Lakindu',
+    name: 'Mr. Lakindu Udara',
     email: 'director2@devplux.com',
     role: 'director',
     roleTitle: 'Director',
@@ -46,7 +46,7 @@ const DEFAULT_DIRECTORS: DirectorData[] = [
   },
   {
     id: 'd3',
-    name: 'MR. Janindu',
+    name: 'Mr. Janindu Chamoth',
     email: 'director3@devplux.com',
     role: 'director',
     roleTitle: 'Director',
@@ -57,7 +57,7 @@ const DEFAULT_DIRECTORS: DirectorData[] = [
   },
   {
     id: 'd4',
-    name: 'Mr. Harsha',
+    name: 'Mr. Harsha Chathuranga',
     email: 'director4@devplux.com',
     role: 'director',
     roleTitle: 'Director',
@@ -68,7 +68,7 @@ const DEFAULT_DIRECTORS: DirectorData[] = [
   },
   {
     id: 'd5',
-    name: 'Mr. Amila',
+    name: 'Mr. Amila Lakshan',
     email: 'director5@devplux.com',
     role: 'director',
     roleTitle: 'Director',

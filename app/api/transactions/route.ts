@@ -129,7 +129,19 @@ export async function GET(req: NextRequest) {
     };
 
     const activePayments = (payments || []).filter((p: any) => !isSoftDeletedTxn(p));
-    const activeExpenses = (expenses || []).filter((e: any) => !isSoftDeletedTxn(e));
+    const activeExpenses = (expenses || []).filter((e: any) => !isSoftDeletedTxn(e)).map((exp: any) => {
+      let resolvedCategory = exp.expense_categories?.name;
+      const desc = String(exp.transactions?.description || '');
+      const catMatch = desc.match(/\[Category:\s*([^\]]+)\]/);
+      if (catMatch && catMatch[1]) {
+        resolvedCategory = catMatch[1].trim();
+      }
+      return {
+        ...exp,
+        category: resolvedCategory || exp.expense_categories?.name || 'General Operating',
+        category_name: resolvedCategory || exp.expense_categories?.name || 'General Operating',
+      };
+    });
 
     // Fetch authoritative financial account balances
     const { data: accounts } = await adminSupabase
@@ -373,22 +385,45 @@ export async function POST(req: NextRequest) {
 
       const e = validation.data;
       const refNo = `EXP-${Date.now()}`;
+      const cleanCatName = (e.category || (payload as any).category || 'General Operating').trim();
 
-      // Resolve Category UUID
+      // Resolve Category UUID dynamically
       let targetCategoryId = e.categoryId;
       if (!targetCategoryId || !UUID_REGEX.test(targetCategoryId)) {
-        if (e.category) {
+        if (cleanCatName) {
           const { data: catRecord } = await adminSupabase
             .from('expense_categories')
-            .select('id')
-            .ilike('name', `%${e.category}%`)
+            .select('id, name')
+            .ilike('name', cleanCatName)
             .limit(1)
             .maybeSingle();
 
-          targetCategoryId = catRecord?.id || DEFAULT_CATEGORY_ID;
-        } else {
-          targetCategoryId = DEFAULT_CATEGORY_ID;
+          if (catRecord) {
+            targetCategoryId = catRecord.id;
+          } else {
+            // Attempt to dynamically insert category into database
+            try {
+              const { data: newCat, error: catInsErr } = await adminSupabase
+                .from('expense_categories')
+                .insert({
+                  company_id: COMPANY_ID,
+                  name: cleanCatName,
+                })
+                .select('id')
+                .single();
+
+              if (!catInsErr && newCat) {
+                targetCategoryId = newCat.id;
+              }
+            } catch (catErr) {
+              console.warn('Notice inserting category into expense_categories:', catErr);
+            }
+          }
         }
+      }
+
+      if (!targetCategoryId || !UUID_REGEX.test(targetCategoryId)) {
+        targetCategoryId = DEFAULT_CATEGORY_ID;
       }
 
       // Resolve Bank Account UUID
@@ -411,6 +446,12 @@ export async function POST(req: NextRequest) {
         targetProjectId = pRecord?.id || null;
       }
 
+      // Tag description with explicit category to guarantee persistence across schema variations
+      const rawDesc = e.description || `${e.vendor} - ${cleanCatName}`;
+      const taggedDescription = rawDesc.includes('[Category:')
+        ? rawDesc
+        : `[Category: ${cleanCatName}] ${rawDesc}`;
+
       // Insert Canonical Transaction
       const { data: txn, error: txnError } = await adminSupabase
         .from('transactions')
@@ -421,7 +462,7 @@ export async function POST(req: NextRequest) {
           amount: e.amount,
           currency: e.currency,
           transaction_date: e.expenseDate,
-          description: e.description || `${e.vendor} - Operating Expense`,
+          description: taggedDescription,
           status: 'posted',
           created_by: userId,
           posted_by: userId,
@@ -457,7 +498,7 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: expError.message }, { status: 400 });
       }
 
-      // Update Bank Account Balance if paid
+      // Update Bank Account Balance if paid (Zero delay execution)
       if (e.isPaid) {
         try {
           const { data: acc } = await adminSupabase
@@ -478,24 +519,28 @@ export async function POST(req: NextRequest) {
       }
 
       // Record audit log for expense
-      let expActorName = 'Director';
-      try {
-        const { data: prof } = await adminSupabase.from('profiles').select('full_name').eq('id', userId || '').maybeSingle();
-        if (prof?.full_name) expActorName = prof.full_name;
-      } catch {
-        // ignore
+      let expActorName = (payload as any).initiatorName || 'Director';
+      if (!expActorName || expActorName === 'Director') {
+        try {
+          const { data: prof } = await adminSupabase.from('profiles').select('full_name').eq('id', userId || '').maybeSingle();
+          if (prof?.full_name) expActorName = prof.full_name;
+        } catch {
+          // ignore
+        }
       }
+      const expActorRole = (payload as any).initiatorRole || 'Director';
 
       await recordAuditLog({
         actorId: userId,
         actorName: expActorName,
-        actorRole: 'Director',
+        actorRole: expActorRole,
         action: 'POST_EXPENSE',
         entityType: 'expense',
         entityId: refNo,
-        reason: `Expense voucher posted to ${e.vendor}. Amount: LKR ${Number(e.amount).toLocaleString()}. Paid status: ${e.isPaid ? 'Settled' : 'Accrued'}.`,
+        reason: `Expense voucher posted to ${e.vendor} (${cleanCatName}). Amount: LKR ${Number(e.amount).toLocaleString()}. Paid status: ${e.isPaid ? 'Settled' : 'Accrued'}.`,
         afterValues: {
           vendor: e.vendor,
+          category: cleanCatName,
           amount: Number(e.amount),
           paymentMethod: e.paymentMethod,
           isPaid: e.isPaid,
@@ -503,7 +548,74 @@ export async function POST(req: NextRequest) {
         },
       });
 
-      return NextResponse.json({ success: true, transaction: txn, expense: exp }, { status: 201 });
+      // Dispatch to Board Approvals Queue (Non-blocking board notification)
+      const changesSummary = `New operating expense voucher (${refNo}) for ${e.vendor} recorded by ${expActorName}. Amount: LKR ${Number(e.amount).toLocaleString()}. Category: ${cleanCatName}.`;
+
+      // Direct insertion into modification_approvals table if present
+      try {
+        await adminSupabase.from('modification_approvals').insert({
+          company_id: COMPANY_ID,
+          entity_type: 'expense',
+          entity_id: exp.id,
+          entity_reference: refNo,
+          entity_name: `${e.vendor} - ${cleanCatName}`,
+          action_type: 'create',
+          initiator_name: expActorName,
+          initiator_role: expActorRole,
+          details: {
+            changesSummary,
+            reason: e.description || `New operating expense voucher recorded for ${e.vendor}`,
+            after: {
+              amount: Number(e.amount),
+              vendor: e.vendor,
+              category: cleanCatName,
+              paymentMethod: e.paymentMethod,
+              isPaid: e.isPaid,
+              transaction_id: txn.id,
+            },
+          },
+          status: 'pending',
+        });
+      } catch (dbInsErr) {
+        // ignore
+      }
+
+      try {
+        await fetch(`${req.nextUrl.origin}/api/approvals`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            entityType: 'expense',
+            entityId: exp.id,
+            entityReference: refNo,
+            entityName: `${e.vendor} - ${cleanCatName}`,
+            actionType: 'create',
+            initiatorName: expActorName,
+            initiatorRole: expActorRole,
+            details: {
+              changesSummary,
+              reason: e.description || `New operating expense voucher recorded for ${e.vendor}`,
+              before: null,
+              after: {
+                amount: Number(e.amount),
+                vendor: e.vendor,
+                category: cleanCatName,
+                paymentMethod: e.paymentMethod,
+                isPaid: e.isPaid,
+                transaction_id: txn.id,
+              },
+            },
+          }),
+        }).catch((e) => console.warn('Notice sending expense creation approval notification:', e));
+      } catch (appErr) {
+        // ignore
+      }
+
+      return NextResponse.json({
+        success: true,
+        transaction: txn,
+        expense: { ...exp, category: cleanCatName, category_name: cleanCatName },
+      }, { status: 201 });
     }
 
     return NextResponse.json({ error: 'Unrecognized actionType' }, { status: 400 });
@@ -782,13 +894,48 @@ export async function PUT(req: NextRequest) {
       const oldBankId = oldExp.bank_account_id || DEFAULT_BANK_ACCOUNT_ID;
       const newBankId = payload.bankAccountId || oldBankId;
 
-      // Update Canonical Transaction
+      // Resolve updated category if provided
+      let targetCategoryId = oldExp.category_id;
+      const newCatName = payload.category ? String(payload.category).trim() : null;
+
+      if (newCatName) {
+        const { data: catRecord } = await adminSupabase
+          .from('expense_categories')
+          .select('id, name')
+          .ilike('name', newCatName)
+          .limit(1)
+          .maybeSingle();
+
+        if (catRecord) {
+          targetCategoryId = catRecord.id;
+        } else {
+          try {
+            const { data: newCat } = await adminSupabase
+              .from('expense_categories')
+              .insert({
+                company_id: COMPANY_ID,
+                name: newCatName,
+              })
+              .select('id')
+              .single();
+            if (newCat) targetCategoryId = newCat.id;
+          } catch (insertErr) {
+            console.warn('Notice inserting into expense_categories in PUT:', insertErr);
+          }
+        }
+      }
+
+      // Update Canonical Transaction with category tag
+      const currentDesc = String((oldExp.transactions as any)?.description || '');
+      const baseDesc = payload.description || currentDesc.replace(/\[Category:\s*[^\]]+\]\s*/g, '').trim() || `${payload.vendor || oldExp.vendor} - Operating Expense`;
+      const updatedDesc = newCatName ? `[Category: ${newCatName}] ${baseDesc}` : currentDesc;
+
       await adminSupabase
         .from('transactions')
         .update({
           amount: newAmount,
           transaction_date: payload.expenseDate || (oldExp.transactions as any)?.transaction_date,
-          description: payload.description || (oldExp.transactions as any)?.description,
+          description: updatedDesc,
         })
         .eq('id', oldExp.transaction_id);
 
@@ -797,6 +944,7 @@ export async function PUT(req: NextRequest) {
         .from('expenses')
         .update({
           vendor: payload.vendor || oldExp.vendor,
+          category_id: targetCategoryId,
           payment_method: payload.paymentMethod || oldExp.payment_method,
           bank_account_id: newBankId,
           invoice_reference: payload.invoiceReference ?? oldExp.invoice_reference,
@@ -842,7 +990,8 @@ export async function PUT(req: NextRequest) {
       // Post Notification to Modification Approvals Queue
       const refNo = (oldExp.transactions as any)?.reference_no || 'EXP';
       const vendorName = payload.vendor || oldExp.vendor;
-      const changesSummary = `Expense to ${vendorName} (${refNo}) updated by ${initiatorName}. Amount: LKR ${oldAmount.toLocaleString()} → LKR ${newAmount.toLocaleString()}.`;
+      const resolvedCategoryDisplay = newCatName || (oldExp.transactions as any)?.description?.match(/\[Category:\s*([^\]]+)\]/)?.[1] || 'Operating Expense';
+      const changesSummary = `Expense to ${vendorName} (${refNo}, ${resolvedCategoryDisplay}) updated by ${initiatorName}. Amount: LKR ${oldAmount.toLocaleString()} → LKR ${newAmount.toLocaleString()}.`;
 
       try {
         await fetch(`${req.nextUrl.origin}/api/approvals`, {
@@ -852,7 +1001,7 @@ export async function PUT(req: NextRequest) {
             entityType: 'expense',
             entityId: id,
             entityReference: refNo,
-            entityName: `${vendorName} - Operating Expense`,
+            entityName: `${vendorName} - ${resolvedCategoryDisplay}`,
             actionType: 'update',
             initiatorName,
             initiatorRole,
@@ -860,7 +1009,7 @@ export async function PUT(req: NextRequest) {
               changesSummary,
               reason: modificationReason,
               before: { amount: oldAmount, vendor: oldExp.vendor, is_paid: oldIsPaid },
-              after: { amount: newAmount, vendor: vendorName, is_paid: newIsPaid },
+              after: { amount: newAmount, vendor: vendorName, category: resolvedCategoryDisplay, is_paid: newIsPaid },
             },
           }),
         }).catch((e) => console.warn('Notice sending approval notification:', e));

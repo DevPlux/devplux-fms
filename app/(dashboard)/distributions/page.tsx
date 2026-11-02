@@ -28,14 +28,15 @@ interface AllocationRecord {
 export default function ProfitDistributionPage() {
   const [period, setPeriod] = useState('October 2026');
   const [netAccountingProfit, setNetAccountingProfit] = useState(0);
-  const [reserveRate, setReserveRate] = useState(20); // 20% retainage
+  const [reserveRate, setReserveRate] = useState(0); // Default to 0% retainage
+  const [reserveRateInput, setReserveRateInput] = useState('0');
   const reserveAmount = (netAccountingProfit * reserveRate) / 100;
   const distributablePool = Math.max(0, netAccountingProfit - reserveAmount);
 
   const [allocations, setAllocations] = useState<AllocationRecord[]>([
     {
       directorId: 'd1',
-      name: 'MR. Chanuka',
+      name: 'Mr. Chanuka Lakshan',
       role: 'Director',
       sharePercentage: 20,
       allocatedAmount: 0,
@@ -45,7 +46,7 @@ export default function ProfitDistributionPage() {
     },
     {
       directorId: 'd2',
-      name: 'MR. Lakindu',
+      name: 'Mr. Lakindu Udara',
       role: 'Director',
       sharePercentage: 20,
       allocatedAmount: 0,
@@ -55,7 +56,7 @@ export default function ProfitDistributionPage() {
     },
     {
       directorId: 'd3',
-      name: 'MR. Janindu',
+      name: 'Mr. Janindu Chamoth',
       role: 'Director',
       sharePercentage: 20,
       allocatedAmount: 0,
@@ -65,7 +66,7 @@ export default function ProfitDistributionPage() {
     },
     {
       directorId: 'd4',
-      name: 'Mr. Harsha',
+      name: 'Mr. Harsha Chathuranga',
       role: 'Director',
       sharePercentage: 20,
       allocatedAmount: 0,
@@ -75,7 +76,7 @@ export default function ProfitDistributionPage() {
     },
     {
       directorId: 'd5',
-      name: 'Mr. Amila',
+      name: 'Mr. Amila Lakshan',
       role: 'Director',
       sharePercentage: 20,
       allocatedAmount: 0,
@@ -151,12 +152,27 @@ export default function ProfitDistributionPage() {
     fetchLiveProfit();
   }, [reserveRate]);
 
-  const handleRecalculatePool = (newProfit: number, newRate: number) => {
-    setNetAccountingProfit(newProfit);
+  const handleReserveRateChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const rawVal = e.target.value;
+    setReserveRateInput(rawVal);
+
+    if (rawVal === '') {
+      applyReserveRate(0);
+      return;
+    }
+
+    const num = parseFloat(rawVal);
+    if (!isNaN(num)) {
+      const clamped = Math.max(0, Math.min(100, num));
+      applyReserveRate(clamped);
+    }
+  };
+
+  const applyReserveRate = (newRate: number) => {
     setReserveRate(newRate);
 
-    const reserve = (newProfit * newRate) / 100;
-    const pool = Math.max(0, newProfit - reserve);
+    const reserve = (netAccountingProfit * newRate) / 100;
+    const pool = Math.max(0, netAccountingProfit - reserve);
 
     const updated = computeDirectorAllocations(pool, [
       { directorId: 'd1', sharePercentage: 20 },
@@ -166,8 +182,8 @@ export default function ProfitDistributionPage() {
       { directorId: 'd5', sharePercentage: 20 },
     ]);
 
-    setAllocations(
-      allocations.map((a) => {
+    setAllocations((prev) =>
+      prev.map((a) => {
         const found = updated.find((u) => u.directorId === a.directorId);
         return {
           ...a,
@@ -278,7 +294,9 @@ export default function ProfitDistributionPage() {
             <p className="text-xl font-bold text-emerald-700 mt-1 tabular-numbers">
               {formatLKR(distributablePool)}
             </p>
-            <p className="text-[11px] text-slate-400 mt-0.5">80% available for director payout</p>
+            <p className="text-[11px] text-slate-400 mt-0.5">
+              {Math.max(0, 100 - reserveRate)}% available for director payout
+            </p>
           </CardContent>
         </Card>
 
@@ -298,39 +316,50 @@ export default function ProfitDistributionPage() {
         <CardHeader>
           <CardTitle>Period Distribution Parameters</CardTitle>
           <p className="text-xs text-slate-500">
-            Configure net period profit to automatically partition 5 equal 20% shareholder allocations.
+            Authoritative net accounting profit partitioned into 5 equal 20.00% director shareholder allocations.
           </p>
         </CardHeader>
         <CardContent className="p-4 pt-0">
           <div className="flex flex-wrap items-center gap-4 bg-slate-50 p-4 rounded-lg border border-slate-200">
-            <div className="flex-1 min-w-[200px]">
+            {/* Fixed Read-Only Recognized Profit */}
+            <div className="flex-1 min-w-[220px]">
               <label className="block text-xs font-semibold text-slate-700 mb-1">
                 Recognized Net Accounting Profit (LKR)
               </label>
-              <input
-                type="number"
-                step="0.01"
-                value={netAccountingProfit || ''}
-                onChange={(e) => handleRecalculatePool(parseFloat(e.target.value) || 0, reserveRate)}
-                placeholder="0.00"
-                className="w-full px-3 py-1.5 text-xs bg-white border border-slate-300 rounded-md focus:outline-none focus:ring-1 focus:ring-slate-900"
-              />
+              <div className="px-3 py-1.5 text-xs font-bold text-slate-900 bg-slate-100 border border-slate-300 rounded-md select-none tabular-numbers flex items-center justify-between">
+                <span>{formatLKR(netAccountingProfit)}</span>
+                <span className="text-[10px] text-slate-500 font-medium uppercase px-1.5 py-0.5 rounded bg-slate-200">
+                  Fixed / Ledger Computed
+                </span>
+              </div>
+              <p className="text-[10px] text-slate-400 mt-1">
+                Authoritative surplus derived directly from valid revenues minus operating expenses.
+              </p>
             </div>
 
-            <div className="w-48">
+            {/* Typeable Retained Reserve (Defaults to 0%) */}
+            <div className="w-56">
               <label className="block text-xs font-semibold text-slate-700 mb-1">
-                Company Retained Reserve (%):
+                Company Retained Reserve (%)
               </label>
-              <select
-                value={reserveRate}
-                onChange={(e) => handleRecalculatePool(netAccountingProfit, parseFloat(e.target.value))}
-                className="w-full px-3 py-1.5 text-xs bg-white border border-slate-300 rounded-md"
-              >
-                <option value={10}>10% Reserve Retainage</option>
-                <option value={20}>20% Reserve Retainage (Standard)</option>
-                <option value={30}>30% Reserve Retainage</option>
-                <option value={50}>50% High-Growth Retainage</option>
-              </select>
+              <div className="relative">
+                <input
+                  type="number"
+                  min="0"
+                  max="100"
+                  step="any"
+                  value={reserveRateInput}
+                  onChange={handleReserveRateChange}
+                  placeholder="0"
+                  className="w-full px-3 py-1.5 pr-8 text-xs font-semibold text-slate-900 bg-white border border-slate-300 rounded-md focus:outline-none focus:ring-1 focus:ring-slate-900 tabular-numbers"
+                />
+                <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400 select-none">
+                  %
+                </span>
+              </div>
+              <p className="text-[10px] text-slate-400 mt-1">
+                Defaults to 0%. Type any % to reserve retained earnings.
+              </p>
             </div>
 
             <div className="flex items-center gap-2 mt-4 sm:mt-0">

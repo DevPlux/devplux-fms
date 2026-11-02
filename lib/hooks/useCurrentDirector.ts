@@ -9,11 +9,11 @@ export interface CurrentDirector {
 }
 
 export const CANONICAL_MAP: Record<string, string> = {
-  'director1@devplux.com': 'MR. Chanuka',
-  'director2@devplux.com': 'MR. Lakindu',
-  'director3@devplux.com': 'MR. Janindu',
-  'director4@devplux.com': 'Mr. Harsha',
-  'director5@devplux.com': 'Mr. Amila',
+  'director1@devplux.com': 'Mr. Chanuka Lakshan',
+  'director2@devplux.com': 'Mr. Lakindu Udara',
+  'director3@devplux.com': 'Mr. Janindu Chamoth',
+  'director4@devplux.com': 'Mr. Harsha Chathuranga',
+  'director5@devplux.com': 'Mr. Amila Lakshan',
 };
 
 const STORAGE_KEY = 'devplux_authenticated_director';

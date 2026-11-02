@@ -4,8 +4,19 @@ import { createServerSupabaseClient } from '@/lib/supabase/server';
 
 const COMPANY_ID = 'a0000000-0000-0000-0000-000000000001';
 
-// In-memory fallback cache to ensure reliability even if database migrations are pending
-let fallbackApprovalsCache: any[] = [];
+// Persistent global caches across Next.js reloads and development server HMR
+if (!(globalThis as any).__devplux_approvals_cache__) {
+  (globalThis as any).__devplux_approvals_cache__ = [];
+}
+if (!(globalThis as any).__devplux_reviewed_approvals__) {
+  (globalThis as any).__devplux_reviewed_approvals__ = new Map<string, any>();
+}
+
+const getApprovalsCache = (): any[] => (globalThis as any).__devplux_approvals_cache__;
+const setApprovalsCache = (items: any[]) => {
+  (globalThis as any).__devplux_approvals_cache__ = items;
+};
+const getReviewedMap = (): Map<string, any> => (globalThis as any).__devplux_reviewed_approvals__;
 
 export async function GET(req: NextRequest) {
   try {
@@ -13,36 +24,199 @@ export async function GET(req: NextRequest) {
     const status = searchParams.get('status');
 
     const adminSupabase = createAdminClient();
+    const reviewedMap = getReviewedMap();
+    const cache = getApprovalsCache();
 
-    // 1. Try querying modification_approvals table
-    const { data, error } = await adminSupabase
-      .from('modification_approvals')
-      .select('*')
-      .order('created_at', { ascending: false });
-
-    if (!error && data && data.length > 0) {
-      let filtered = data;
-      if (status && status !== 'all') {
-        filtered = data.filter((item: any) => item.status === status);
-      }
-      return NextResponse.json({ success: true, data: filtered, count: filtered.length });
+    // 1. Fetch from modification_approvals table if present in DB
+    let dbApprovals: any[] = [];
+    try {
+      const { data, error } = await adminSupabase
+        .from('modification_approvals')
+        .select('*')
+        .order('created_at', { ascending: false });
+      if (!error && data) dbApprovals = data;
+    } catch {
+      // ignore
     }
 
-    // 2. If table is not present yet or errored, use fallback cache
-    let filteredFallback = fallbackApprovalsCache;
+    // 2. Fetch authoritative expenses from Supabase to guarantee NO expense is ever missing from Approvals
+    let dbExpenses: any[] = [];
+    try {
+      const { data: exps } = await adminSupabase
+        .from('expenses')
+        .select(`
+          id,
+          vendor,
+          category_id,
+          is_paid,
+          created_at,
+          transactions (
+            id,
+            reference_no,
+            amount,
+            status,
+            description,
+            transaction_date,
+            created_by
+          ),
+          expense_categories (name)
+        `)
+        .order('created_at', { ascending: false })
+        .limit(50);
+      if (exps) dbExpenses = exps;
+    } catch (e) {
+      console.warn('Notice querying expenses in approvals:', e);
+    }
+
+    // Fetch profile names for directors
+    const profileMap = new Map<string, string>();
+    try {
+      const { data: profiles } = await adminSupabase.from('profiles').select('id, full_name');
+      if (profiles) {
+        profiles.forEach((p: any) => profileMap.set(p.id, p.full_name));
+      }
+    } catch {
+      // ignore
+    }
+
+    // Set of IDs already in DB approvals or in-memory cache
+    const registeredEntityIds = new Set<string>();
+    dbApprovals.forEach((a: any) => {
+      if (a.entity_id) registeredEntityIds.add(String(a.entity_id));
+      if (a.entity_reference) registeredEntityIds.add(String(a.entity_reference));
+      if (a.id) registeredEntityIds.add(String(a.id));
+    });
+    cache.forEach((a: any) => {
+      if (a.entity_id) registeredEntityIds.add(String(a.entity_id));
+      if (a.entity_reference) registeredEntityIds.add(String(a.entity_reference));
+      if (a.id) registeredEntityIds.add(String(a.id));
+    });
+
+    // Synthesize approvals for any DB expenses not yet in the approvals register
+    const synthesizedExpenses: any[] = [];
+    dbExpenses.forEach((exp: any) => {
+      const txn = (exp.transactions as any) || {};
+      const refNo = txn.reference_no || `EXP-${String(exp.id).slice(0, 8)}`;
+      if (registeredEntityIds.has(String(exp.id)) || registeredEntityIds.has(refNo)) {
+        return;
+      }
+
+      const isSoftDeleted =
+        txn.status === 'reversed' || String(txn.description || '').includes('[SOFT_DELETED_PENDING_APPROVAL]');
+      const catMatch = String(txn.description || '').match(/\[Category:\s*([^\]]+)\]/);
+      const category = catMatch?.[1]?.trim() || exp.expense_categories?.name || 'Operating Expense';
+      const actorName = profileMap.get(txn.created_by) || 'Mr. Chanuka Lakshan';
+      const amount = Number(txn.amount || 0);
+
+      const reviewRecord = reviewedMap.get(exp.id) || reviewedMap.get(refNo) || reviewedMap.get(`appr-${exp.id}`);
+
+      const initialApprovers = reviewRecord?.approvers || [actorName];
+      const approvalsCount = reviewRecord?.approvals_count || initialApprovers.length;
+      const isQuorum = approvalsCount >= 3;
+
+      synthesizedExpenses.push({
+        id: `appr-${exp.id}`,
+        company_id: COMPANY_ID,
+        entity_type: 'expense',
+        entity_id: exp.id,
+        entity_reference: refNo,
+        entity_name: `${exp.vendor} - ${category}`,
+        action_type: isSoftDeleted ? 'delete' : 'create',
+        initiator_id: txn.created_by || null,
+        initiator_name: actorName,
+        initiator_role: 'Director',
+        approvers: initialApprovers,
+        approvals_count: approvalsCount,
+        required_approvals: 3,
+        details: {
+          changesSummary: isSoftDeleted
+            ? `Expense ${refNo} (${exp.vendor}) soft-deleted by ${actorName}.`
+            : `New operating expense voucher (${refNo}) for ${exp.vendor} recorded by ${actorName}. Amount: LKR ${amount.toLocaleString()}. Category: ${category}.`,
+          reason: txn.description?.replace(/\[Category:\s*[^\]]+\]\s*/g, '').trim() || 'Operating expense voucher',
+          after: {
+            amount,
+            vendor: exp.vendor,
+            category,
+            is_paid: exp.is_paid,
+            transaction_id: txn.id,
+          },
+        },
+        status: reviewRecord ? (reviewRecord.status === 'rejected' ? 'rejected' : isQuorum ? 'approved' : 'pending') : 'pending',
+        reviewer_name: reviewRecord?.reviewer_name,
+        reviewed_at: reviewRecord?.reviewed_at,
+        review_notes: reviewRecord?.review_notes,
+        flagged_by: reviewRecord?.flagged_by,
+        created_at: exp.created_at || txn.transaction_date || new Date().toISOString(),
+        updated_at: exp.created_at || txn.transaction_date || new Date().toISOString(),
+      });
+    });
+
+    // Merge in order of precedence: Synthesized < In-Memory Cache < DB Table
+    const mergedMap = new Map<string, any>();
+
+    synthesizedExpenses.forEach((item) => mergedMap.set(item.id, item));
+
+    cache.forEach((item) => {
+      const rev =
+        reviewedMap.get(item.id) ||
+        reviewedMap.get(item.entity_id) ||
+        reviewedMap.get(item.entity_reference);
+      if (rev) {
+        item.status = rev.status;
+        item.reviewer_name = rev.reviewer_name;
+        item.reviewed_at = rev.reviewed_at;
+        item.review_notes = rev.review_notes;
+        item.approvers = rev.approvers || item.approvers || [item.initiator_name];
+        item.approvals_count = rev.approvals_count || item.approvals_count || item.approvers.length;
+        item.flagged_by = rev.flagged_by || item.flagged_by;
+      }
+      mergedMap.set(item.id, item);
+    });
+
+    dbApprovals.forEach((item) => {
+      const rev =
+        reviewedMap.get(item.id) ||
+        reviewedMap.get(item.entity_id) ||
+        reviewedMap.get(item.entity_reference);
+      if (rev) {
+        item.status = rev.status;
+        item.reviewer_name = rev.reviewer_name;
+        item.reviewed_at = rev.reviewed_at;
+        item.review_notes = rev.review_notes;
+        item.approvers = rev.approvers || item.approvers || [item.initiator_name];
+        item.approvals_count = rev.approvals_count || item.approvals_count || (item.approvers?.length || 1);
+        item.flagged_by = rev.flagged_by || item.flagged_by;
+      }
+      mergedMap.set(item.id, item);
+    });
+
+    const allItems = Array.from(mergedMap.values()).map((item) => {
+      const approvers = item.approvers || (item.initiator_name ? [item.initiator_name] : ['Initiating Director']);
+      const count = item.approvals_count || approvers.length;
+      return {
+        ...item,
+        approvers,
+        approvals_count: count,
+        required_approvals: 3,
+        status: item.status === 'rejected' ? 'rejected' : count >= 3 ? 'approved' : 'pending',
+      };
+    }).sort(
+      (a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime()
+    );
+
+    let filtered = allItems;
     if (status && status !== 'all') {
-      filteredFallback = fallbackApprovalsCache.filter((item: any) => item.status === status);
+      filtered = allItems.filter((item: any) => item.status === status);
     }
 
     return NextResponse.json({
       success: true,
-      data: filteredFallback,
-      count: filteredFallback.length,
-      isFallback: true,
+      data: filtered,
+      count: filtered.length,
     });
   } catch (err: any) {
     console.warn('Notice in approvals GET:', err);
-    return NextResponse.json({ success: true, data: fallbackApprovalsCache, count: fallbackApprovalsCache.length });
+    return NextResponse.json({ success: true, data: getApprovalsCache(), count: getApprovalsCache().length });
   }
 }
 
@@ -86,10 +260,13 @@ export async function POST(req: NextRequest) {
       entity_id: String(entityId),
       entity_reference: entityReference || 'REF',
       entity_name: entityName || 'Financial Entity',
-      action_type: actionType, // 'update' | 'delete'
+      action_type: actionType, // 'create' | 'update' | 'delete'
       initiator_id: actorId || null,
       initiator_name: finalInitiatorName,
       initiator_role: finalInitiatorRole,
+      approvers: [finalInitiatorName],
+      approvals_count: 1,
+      required_approvals: 3,
       details: details || {},
       status: 'pending',
       created_at: new Date().toISOString(),
@@ -110,7 +287,12 @@ export async function POST(req: NextRequest) {
           initiator_id: actorId || null,
           initiator_name: finalInitiatorName,
           initiator_role: finalInitiatorRole,
-          details: details || {},
+          details: {
+            ...(details || {}),
+            approvers: [finalInitiatorName],
+            approvals_count: 1,
+            required_approvals: 3,
+          },
           status: 'pending',
         })
         .select()
@@ -123,8 +305,9 @@ export async function POST(req: NextRequest) {
       console.warn('Notice inserting modification approval to DB table:', dbErr);
     }
 
-    // Keep in fallback cache
-    fallbackApprovalsCache = [newApproval, ...fallbackApprovalsCache.filter((a) => a.id !== newApproval.id)];
+    // Keep in persistent global cache
+    const currentCache = getApprovalsCache();
+    setApprovalsCache([newApproval, ...currentCache.filter((a) => a.id !== newApproval.id)]);
 
     // Write immutable record into audit_logs
     try {
@@ -170,17 +353,17 @@ export async function PATCH(req: NextRequest) {
 
     const adminSupabase = createAdminClient();
     const reviewedAt = new Date().toISOString();
-    const finalReviewerName = reviewerName || 'Director';
-    const finalNotes = reviewNotes || 'Acknowledged and confirmed by board director';
+    const finalReviewerName = (reviewerName || 'Director').trim();
 
-    // 1. Locate the approval record to determine action type
-    let targetApproval: any = fallbackApprovalsCache.find((a) => a.id === id);
+    // 1. Locate the approval record to determine action type and initiator
+    const currentCache = getApprovalsCache();
+    let targetApproval: any = currentCache.find((a) => a.id === id || a.entity_id === id);
     if (!targetApproval) {
       try {
         const { data: dbItem } = await adminSupabase
           .from('modification_approvals')
           .select('*')
-          .eq('id', id)
+          .or(`id.eq.${id},entity_id.eq.${id}`)
           .maybeSingle();
         if (dbItem) targetApproval = dbItem;
       } catch {
@@ -188,24 +371,56 @@ export async function PATCH(req: NextRequest) {
       }
     }
 
-    // 2. If approved and action_type was 'delete': EXECUTE PERMANENT HARD DELETE
-    if (status === 'approved' && targetApproval?.action_type === 'delete') {
+    // Check initiator restriction: Initiator CANNOT approve their own action
+    const initiatorName = (targetApproval?.initiator_name || '').trim();
+    if (status === 'approved' && initiatorName && initiatorName.toLowerCase() === finalReviewerName.toLowerCase()) {
+      return NextResponse.json(
+        { error: 'You are the initiating director. Two independent peer directors must approve.' },
+        { status: 403 }
+      );
+    }
+
+    // 2. Compute 3/5 Quorum Approvals
+    let existingApprovers: string[] = targetApproval?.approvers || [];
+    if (existingApprovers.length === 0 && initiatorName) {
+      existingApprovers = [initiatorName];
+    }
+
+    let updatedApprovers = existingApprovers;
+    let finalStatus = status;
+    let isQuorumReached = false;
+    let finalNotes = reviewNotes || '';
+
+    if (status === 'approved') {
+      updatedApprovers = Array.from(new Set([...existingApprovers, finalReviewerName]));
+      const count = updatedApprovers.length;
+      isQuorumReached = count >= 3;
+      finalStatus = isQuorumReached ? 'approved' : 'pending';
+
+      const peerApprovers = updatedApprovers.filter((n) => n.toLowerCase() !== initiatorName.toLowerCase());
+      finalNotes = isQuorumReached
+        ? `Board Quorum (3/5) achieved! Approved by ${updatedApprovers.join(', ')}.`
+        : `Peer approval (1/2) recorded by ${finalReviewerName}. Total: 2/3. Awaiting 1 more peer approval.`;
+    } else if (status === 'rejected') {
+      finalStatus = 'rejected';
+      finalNotes = reviewNotes || `Flagged for clarification by ${finalReviewerName}`;
+    }
+
+    // 3. If approved AND 3/5 Quorum reached AND action_type was 'delete': EXECUTE PERMANENT HARD DELETE
+    if (isQuorumReached && targetApproval?.action_type === 'delete') {
       const entityType = targetApproval.entity_type;
       const entityId = targetApproval.entity_id;
 
       try {
         if (entityType === 'project') {
-          // Permanently hard delete project from DB
           await adminSupabase.from('projects').delete().eq('id', entityId);
         } else if (entityType === 'client_payment') {
-          // Permanently hard delete client payment & transaction
           await adminSupabase.from('client_payments').delete().eq('id', entityId);
           const txnId = targetApproval.details?.before?.transaction_id || targetApproval.details?.before?.transactionId;
           if (txnId) {
             await adminSupabase.from('transactions').delete().eq('id', txnId);
           }
         } else if (entityType === 'expense') {
-          // Permanently hard delete expense & transaction
           await adminSupabase.from('expenses').delete().eq('id', entityId);
           const txnId = targetApproval.details?.before?.transaction_id || targetApproval.details?.before?.transactionId;
           if (txnId) {
@@ -217,21 +432,19 @@ export async function PATCH(req: NextRequest) {
       }
     }
 
-    // 3. If rejected and action_type was 'delete': RESTORE SOFT-DELETED ENTITY
+    // 4. If rejected and action_type was 'delete': RESTORE SOFT-DELETED ENTITY
     if (status === 'rejected' && targetApproval?.action_type === 'delete') {
       const entityType = targetApproval.entity_type;
       const entityId = targetApproval.entity_id;
 
       try {
         if (entityType === 'project') {
-          // Un-soft-delete project
           const { data: p } = await adminSupabase.from('projects').select('notes').eq('id', entityId).maybeSingle();
           if (p?.notes) {
             const restoredNotes = p.notes.replace('[SOFT_DELETED_PENDING_APPROVAL]', '').trim();
             await adminSupabase.from('projects').update({ notes: restoredNotes }).eq('id', entityId);
           }
         } else if (entityType === 'client_payment' || entityType === 'expense') {
-          // Restore transaction status to posted
           const txnId = targetApproval.details?.before?.transaction_id || targetApproval.details?.before?.transactionId;
           if (txnId) {
             await adminSupabase.from('transactions').update({ status: 'posted' }).eq('id', txnId);
@@ -242,39 +455,72 @@ export async function PATCH(req: NextRequest) {
       }
     }
 
-    // 4. Update approval record in DB
+    // 5. Update approval record in DB
     try {
       await adminSupabase
         .from('modification_approvals')
         .update({
-          status,
+          status: finalStatus,
           reviewed_by: reviewerId || null,
-          reviewer_name: finalReviewerName,
+          reviewer_name: updatedApprovers.join(', '),
           reviewed_at: reviewedAt,
           review_notes: finalNotes,
           updated_at: reviewedAt,
+          details: {
+            ...(targetApproval?.details || {}),
+            approvers: updatedApprovers,
+            approvals_count: updatedApprovers.length,
+            required_approvals: 3,
+            flagged_by: status === 'rejected' ? finalReviewerName : null,
+          },
         })
         .eq('id', id);
     } catch (dbErr) {
       console.warn('Notice updating DB modification approval:', dbErr);
     }
 
-    // 5. Update fallback cache
-    fallbackApprovalsCache = fallbackApprovalsCache.map((item) => {
-      if (item.id === id) {
-        return {
-          ...item,
-          status,
-          reviewer_name: finalReviewerName,
-          reviewed_at: reviewedAt,
-          review_notes: finalNotes,
-          updated_at: reviewedAt,
-        };
-      }
-      return item;
-    });
+    // 6. Update in global reviewed map and persistent cache
+    const reviewedMap = getReviewedMap();
+    const reviewData = {
+      status: finalStatus,
+      reviewer_name: updatedApprovers.join(', '),
+      reviewed_at: reviewedAt,
+      review_notes: finalNotes,
+      approvers: updatedApprovers,
+      approvals_count: updatedApprovers.length,
+      required_approvals: 3,
+      flagged_by: status === 'rejected' ? finalReviewerName : null,
+    };
+    reviewedMap.set(id, reviewData);
+    if (targetApproval?.entity_id) {
+      reviewedMap.set(targetApproval.entity_id, reviewData);
+      reviewedMap.set(`appr-${targetApproval.entity_id}`, reviewData);
+    }
+    if (targetApproval?.entity_reference) {
+      reviewedMap.set(targetApproval.entity_reference, reviewData);
+    }
 
-    // 6. Append review sign-off to immutable audit_logs
+    setApprovalsCache(
+      currentCache.map((item) => {
+        if (item.id === id || item.entity_id === id || (targetApproval && item.id === targetApproval.id)) {
+          return {
+            ...item,
+            status: finalStatus,
+            reviewer_name: updatedApprovers.join(', '),
+            reviewed_at: reviewedAt,
+            review_notes: finalNotes,
+            approvers: updatedApprovers,
+            approvals_count: updatedApprovers.length,
+            required_approvals: 3,
+            flagged_by: status === 'rejected' ? finalReviewerName : null,
+            updated_at: reviewedAt,
+          };
+        }
+        return item;
+      })
+    );
+
+    // 7. Append sign-off to immutable audit_logs
     try {
       await adminSupabase.from('audit_logs').insert({
         company_id: COMPANY_ID,
@@ -284,7 +530,7 @@ export async function PATCH(req: NextRequest) {
         action: `DIRECTOR_${status.toUpperCase()}_MODIFICATION`,
         entity_type: 'modification_approval',
         entity_id: String(id),
-        reason: `${finalReviewerName} ${status === 'approved' ? 'approved & confirmed' : 'flagged'} modification: ${finalNotes}`,
+        reason: `${finalReviewerName} ${status === 'approved' ? (isQuorumReached ? 'approved (Board Quorum 3/5 achieved)' : 'approved (Peer Sign-off 1/2)') : 'flagged'}: ${finalNotes}`,
         timestamp: reviewedAt,
       });
     } catch (auditErr) {
@@ -295,8 +541,12 @@ export async function PATCH(req: NextRequest) {
       success: true,
       data: {
         id,
-        status,
-        reviewer_name: finalReviewerName,
+        status: finalStatus,
+        approvers: updatedApprovers,
+        approvals_count: updatedApprovers.length,
+        required_approvals: 3,
+        isQuorumReached,
+        reviewer_name: updatedApprovers.join(', '),
         reviewed_at: reviewedAt,
         review_notes: finalNotes,
       },

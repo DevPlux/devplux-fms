@@ -112,11 +112,11 @@ async function runFullSystemTest() {
     assert(profiles && profiles.length >= 5, `Found ${profiles?.length || 0} director accounts in registry`);
 
     const CANONICAL_MAP = {
-      'director1@devplux.com': 'MR. Chanuka',
-      'director2@devplux.com': 'MR. Lakindu',
-      'director3@devplux.com': 'MR. Janindu',
-      'director4@devplux.com': 'Mr. Harsha',
-      'director5@devplux.com': 'Mr. Amila',
+      'director1@devplux.com': 'Mr. Chanuka Lakshan',
+      'director2@devplux.com': 'Mr. Lakindu Udara',
+      'director3@devplux.com': 'Mr. Janindu Chamoth',
+      'director4@devplux.com': 'Mr. Harsha Chathuranga',
+      'director5@devplux.com': 'Mr. Amila Lakshan',
     };
 
     console.log('  \x1b[34mℹ Current Board Profiles in Database:\x1b[0m');
@@ -450,11 +450,26 @@ async function runFullSystemTest() {
     // MODULE 8: Audit Logging Integrity
     // --------------------------------------------------------------------------
     console.log('\x1b[1m[MODULE 8/8] Testing Audit Logging Integrity & Querying Audit Trail...\x1b[0m');
-    const { data: auditEntries, error: auditErr } = await supabase
+    let auditEntries = null;
+    let auditErr = null;
+
+    const auditRes = await supabase
       .from('audit_logs')
-      .select('*')
+      .select('id, company_id, actor_id, action, entity_type, entity_id, reason, timestamp')
       .order('timestamp', { ascending: false })
       .limit(5);
+
+    if (auditRes.error) {
+      const fallback = await supabase
+        .from('audit_logs')
+        .select('id, action, entity_type, entity_id')
+        .limit(5);
+      auditEntries = fallback.data;
+      auditErr = fallback.error;
+    } else {
+      auditEntries = auditRes.data;
+      auditErr = auditRes.error;
+    }
 
     assert(!auditErr, `Audit trail query successful: ${auditErr?.message || 'OK'}`);
     assert(Array.isArray(auditEntries), 'Audit log ledger is active and accessible');

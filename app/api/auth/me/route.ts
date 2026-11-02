@@ -5,11 +5,11 @@ import { createAdminClient } from '@/lib/supabase/admin';
 export const dynamic = 'force-dynamic';
 
 const CANONICAL_DIRECTORS_MAP: Record<string, { name: string; email: string }> = {
-  'director1@devplux.com': { name: 'MR. Chanuka', email: 'director1@devplux.com' },
-  'director2@devplux.com': { name: 'MR. Lakindu', email: 'director2@devplux.com' },
-  'director3@devplux.com': { name: 'MR. Janindu', email: 'director3@devplux.com' },
-  'director4@devplux.com': { name: 'Mr. Harsha', email: 'director4@devplux.com' },
-  'director5@devplux.com': { name: 'Mr. Amila', email: 'director5@devplux.com' },
+  'director1@devplux.com': { name: 'Mr. Chanuka Lakshan', email: 'director1@devplux.com' },
+  'director2@devplux.com': { name: 'Mr. Lakindu Udara', email: 'director2@devplux.com' },
+  'director3@devplux.com': { name: 'Mr. Janindu Chamoth', email: 'director3@devplux.com' },
+  'director4@devplux.com': { name: 'Mr. Harsha Chathuranga', email: 'director4@devplux.com' },
+  'director5@devplux.com': { name: 'Mr. Amila Lakshan', email: 'director5@devplux.com' },
 };
 
 export async function GET() {
@@ -53,7 +53,7 @@ export async function GET() {
     if (
       !resolvedName ||
       resolvedName.toLowerCase().startsWith('director ') ||
-      (canonical && !resolvedName.includes('.'))
+      (canonical && profile?.full_name !== canonical.name)
     ) {
       resolvedName = canonical?.name || resolvedName || 'Director';
     }

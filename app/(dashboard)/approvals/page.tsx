@@ -19,7 +19,7 @@ import {
   Eye,
   Info,
   Trash2,
-  Pencil,
+  Users,
 } from 'lucide-react';
 import { useCurrentDirector } from '@/lib/hooks/useCurrentDirector';
 
@@ -30,9 +30,12 @@ interface ModificationApprovalRecord {
   entity_id: string;
   entity_reference: string;
   entity_name: string;
-  action_type: 'update' | 'delete';
+  action_type: 'create' | 'update' | 'delete';
   initiator_name: string;
   initiator_role: string;
+  approvers?: string[];
+  approvals_count?: number;
+  required_approvals?: number;
   details: {
     changesSummary?: string;
     reason?: string;
@@ -43,6 +46,7 @@ interface ModificationApprovalRecord {
   reviewer_name?: string;
   reviewed_at?: string;
   review_notes?: string;
+  flagged_by?: string;
   created_at: string;
 }
 
@@ -52,7 +56,7 @@ export default function ApprovalsPage() {
   const [approvals, setApprovals] = useState<ModificationApprovalRecord[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [statusFilter, setStatusFilter] = useState<'all' | 'pending' | 'approved' | 'rejected'>('all');
-  const [actionFilter, setActionFilter] = useState<'all' | 'delete' | 'update'>('all');
+  const [actionFilter, setActionFilter] = useState<'all' | 'create' | 'delete' | 'update'>('all');
 
   // Detail Modal
   const [selectedApproval, setSelectedApproval] = useState<ModificationApprovalRecord | null>(null);
@@ -89,8 +93,10 @@ export default function ApprovalsPage() {
       const reviewerName = currentDirector.name || 'Director';
       const notes =
         item.action_type === 'delete'
-          ? `Deletion approved & confirmed permanent hard-delete by ${reviewerName}`
-          : `Update acknowledged & confirmed by ${reviewerName}`;
+          ? `Deletion approval signed by ${reviewerName}`
+          : item.action_type === 'create'
+          ? `Expense voucher approved by ${reviewerName}`
+          : `Update approved by ${reviewerName}`;
 
       const res = await fetch('/api/approvals', {
         method: 'PATCH',
@@ -103,26 +109,14 @@ export default function ApprovalsPage() {
         }),
       });
 
+      const resData = await res.json();
       if (!res.ok) {
-        throw new Error('Failed to acknowledge modification');
+        throw new Error(resData.error || 'Failed to record peer approval');
       }
 
-      // Optimistically update local state
-      setApprovals((prev) =>
-        prev.map((a) =>
-          a.id === item.id
-            ? {
-                ...a,
-                status: 'approved',
-                reviewer_name: reviewerName,
-                reviewed_at: new Date().toISOString(),
-                review_notes: notes,
-              }
-            : a
-        )
-      );
+      await fetchApprovals();
     } catch (err: any) {
-      alert(`Action error: ${err.message}`);
+      alert(`Approval Action: ${err.message}`);
     } finally {
       setIsSubmittingAction(false);
     }
@@ -150,23 +144,11 @@ export default function ApprovalsPage() {
       });
 
       if (!res.ok) {
-        throw new Error('Failed to flag modification');
+        const json = await res.json();
+        throw new Error(json.error || 'Failed to flag modification');
       }
 
-      setApprovals((prev) =>
-        prev.map((a) =>
-          a.id === itemToFlag.id
-            ? {
-                ...a,
-                status: 'rejected',
-                reviewer_name: reviewerName,
-                reviewed_at: new Date().toISOString(),
-                review_notes: flagReason.trim(),
-              }
-            : a
-        )
-      );
-
+      await fetchApprovals();
       setIsFlagModalOpen(false);
       setItemToFlag(null);
       setFlagReason('');
@@ -191,7 +173,7 @@ export default function ApprovalsPage() {
   return (
     <DashboardLayout
       pageTitle="Directors Modification & Approval Queue"
-      pageDescription="Real-time financial execution with peer director oversight, soft-deletes, and board sign-offs."
+      pageDescription="Board governance: 3/5 Quorum rule (1 Initiator + 2 Peer Directors) with immediate zero-delay ledger execution."
       userRole="director"
     >
       {/* Governance & Real-Time Policy Notice */}
@@ -201,10 +183,12 @@ export default function ApprovalsPage() {
             <ShieldCheck className="w-5 h-5 text-blue-600 shrink-0 mt-0.5" />
             <div className="text-xs text-slate-700">
               <p className="font-semibold text-slate-900">
-                Optimistic Execution & Dual-Stage Governance Protocol:
+                Corporate Governance Rule: 3/5 Board Quorum Protocol (1 Initiator + 2 Peer Sign-offs)
               </p>
-              <p className="mt-0.5 text-slate-600">
-                To guarantee zero operational delay, updates take effect immediately and deleted records are <strong>soft-deleted instantly</strong> so ledger calculations, bank balances, and receivables update with zero waiting. In this queue, peer directors inspect who made each modification, and permanent hard-deletions execute once the board gives approval.
+              <p className="mt-0.5 text-slate-600 leading-relaxed">
+                <strong>Zero-Delay Real-Time Execution:</strong> All system calculations (bank balance, ledger, receivables, and profit) update immediately when an entry or deletion is made. 
+                Under board governance, the initiating director counts as 1 vote, and <strong>2 independent peer directors must review and approve (total 3/5 majority)</strong> for the action to be permanently board-enacted. 
+                <span className="text-slate-900 font-medium ml-1">Initiating directors cannot approve their own submissions.</span>
               </p>
             </div>
           </div>
@@ -216,11 +200,11 @@ export default function ApprovalsPage() {
         <Card>
           <CardContent className="p-4">
             <div className="flex items-center justify-between">
-              <p className="text-xs text-slate-500 font-semibold uppercase">Pending Reviews</p>
+              <p className="text-xs text-slate-500 font-semibold uppercase">Pending Peer Reviews</p>
               <Clock className="w-4 h-4 text-amber-500" />
             </div>
             <p className="text-2xl font-bold text-amber-600 mt-1">{pendingCount}</p>
-            <p className="text-[11px] text-slate-400 mt-0.5">Awaiting director review</p>
+            <p className="text-[11px] text-slate-400 mt-0.5">Awaiting 3/5 board quorum</p>
           </CardContent>
         </Card>
 
@@ -231,18 +215,18 @@ export default function ApprovalsPage() {
               <Trash2 className="w-4 h-4 text-rose-500" />
             </div>
             <p className="text-2xl font-bold text-rose-600 mt-1">{pendingDeletes}</p>
-            <p className="text-[11px] text-rose-500 mt-0.5">Soft-deleted, pending hard-delete</p>
+            <p className="text-[11px] text-rose-500 mt-0.5">Soft-deleted, needs 3/5 quorum to hard-delete</p>
           </CardContent>
         </Card>
 
         <Card>
           <CardContent className="p-4">
             <div className="flex items-center justify-between">
-              <p className="text-xs text-slate-500 font-semibold uppercase">Approved & Enacted</p>
+              <p className="text-xs text-slate-500 font-semibold uppercase">3/5 Quorum Achieved</p>
               <CheckCircle2 className="w-4 h-4 text-emerald-600" />
             </div>
             <p className="text-2xl font-bold text-emerald-600 mt-1">{approvedCount}</p>
-            <p className="text-[11px] text-slate-400 mt-0.5">Confirmed by board directors</p>
+            <p className="text-[11px] text-slate-400 mt-0.5">Confirmed by 3+ directors</p>
           </CardContent>
         </Card>
 
@@ -253,7 +237,7 @@ export default function ApprovalsPage() {
               <AlertTriangle className="w-4 h-4 text-amber-600" />
             </div>
             <p className="text-2xl font-bold text-amber-700 mt-1">{flaggedCount}</p>
-            <p className="text-[11px] text-slate-400 mt-0.5">Requires clarification</p>
+            <p className="text-[11px] text-slate-400 mt-0.5">Peer clarification requested</p>
           </CardContent>
         </Card>
       </div>
@@ -269,7 +253,7 @@ export default function ApprovalsPage() {
               setActionFilter('all');
             }}
           >
-            All Modifications ({approvals.length})
+            All Entries ({approvals.length})
           </Button>
           <Button
             variant={statusFilter === 'pending' && actionFilter === 'all' ? 'primary' : 'outline'}
@@ -279,7 +263,17 @@ export default function ApprovalsPage() {
               setActionFilter('all');
             }}
           >
-            Pending ({pendingCount})
+            Pending Quorum ({pendingCount})
+          </Button>
+          <Button
+            variant={actionFilter === 'create' ? 'primary' : 'outline'}
+            size="sm"
+            onClick={() => {
+              setActionFilter('create');
+              setStatusFilter('all');
+            }}
+          >
+            New Expenses ({approvals.filter((a) => a.action_type === 'create').length})
           </Button>
           <Button
             variant={actionFilter === 'delete' ? 'primary' : 'outline'}
@@ -289,7 +283,7 @@ export default function ApprovalsPage() {
               setStatusFilter('all');
             }}
           >
-            Deletions (Soft-Deleted)
+            Deletions ({approvals.filter((a) => a.action_type === 'delete').length})
           </Button>
           <Button
             variant={actionFilter === 'update' ? 'primary' : 'outline'}
@@ -299,7 +293,7 @@ export default function ApprovalsPage() {
               setStatusFilter('all');
             }}
           >
-            Updates
+            Updates ({approvals.filter((a) => a.action_type === 'update').length})
           </Button>
           <Button
             variant={statusFilter === 'approved' ? 'primary' : 'outline'}
@@ -309,7 +303,7 @@ export default function ApprovalsPage() {
               setActionFilter('all');
             }}
           >
-            Acknowledged ({approvedCount})
+            Enacted (3/5) ({approvedCount})
           </Button>
           <Button
             variant={statusFilter === 'rejected' ? 'primary' : 'outline'}
@@ -337,9 +331,12 @@ export default function ApprovalsPage() {
       {/* Approvals Table */}
       <Card>
         <CardHeader>
-          <CardTitle>Modification Audit & Director Sign-Off Register</CardTitle>
+          <div className="flex items-center gap-2">
+            <Users className="w-4 h-4 text-blue-600" />
+            <CardTitle>Board Modification & 3/5 Quorum Register</CardTitle>
+          </div>
           <p className="text-xs text-slate-500 mt-0.5">
-            Peer directors review all updates and soft-deletions. Approving a deletion permanently hard-deletes it from the database.
+            Requires 3/5 director majority (Creator + 2 independent peers). Initiating directors cannot approve their own submission.
           </p>
         </CardHeader>
         <div className="overflow-x-auto">
@@ -349,9 +346,9 @@ export default function ApprovalsPage() {
                 <th className="px-6 py-3.5">Timestamp</th>
                 <th className="px-6 py-3.5">Entity</th>
                 <th className="px-6 py-3.5">Action</th>
-                <th className="px-6 py-3.5">Initiating Director</th>
-                <th className="px-6 py-3.5">Summary of Modification</th>
-                <th className="px-6 py-3.5 text-center">Status</th>
+                <th className="px-6 py-3.5">Initiator & Signers (3/5)</th>
+                <th className="px-6 py-3.5">Summary of Record</th>
+                <th className="px-6 py-3.5 text-center">Quorum Status</th>
                 <th className="px-6 py-3.5 text-right">Director Review</th>
               </tr>
             </thead>
@@ -362,7 +359,7 @@ export default function ApprovalsPage() {
                     <Info className="w-6 h-6 text-slate-300 mx-auto mb-1.5" />
                     <p className="font-semibold text-slate-600 text-xs">No modification notices found</p>
                     <p className="text-[11px] text-slate-400 mt-0.5">
-                      Whenever any director edits or deletes a project, payment, or expense, it will appear here for board verification.
+                      Whenever any director adds, edits, or deletes an expense, payment, or project, it appears here for peer director sign-off.
                     </p>
                   </td>
                 </tr>
@@ -371,6 +368,27 @@ export default function ApprovalsPage() {
                   const isPending = item.status === 'pending';
                   const isApproved = item.status === 'approved';
                   const isRejected = item.status === 'rejected';
+
+                  const count = item.approvals_count || (item.approvers?.length || 1);
+                  const approversList = item.approvers || [item.initiator_name];
+
+                  const currentDirectorName = (currentDirector?.name || '').trim().toLowerCase();
+                  const initiatorName = (item.initiator_name || '').trim().toLowerCase();
+
+                  // Check if logged-in user is the initiator
+                  const isInitiator = Boolean(
+                    currentDirectorName &&
+                    initiatorName &&
+                    (currentDirectorName === initiatorName ||
+                     initiatorName.includes(currentDirectorName) ||
+                     currentDirectorName.includes(initiatorName))
+                  );
+
+                  // Check if logged-in user has already approved
+                  const alreadyApproved = approversList.some((n) => {
+                    const clean = n.trim().toLowerCase();
+                    return clean === currentDirectorName || currentDirectorName.includes(clean);
+                  });
 
                   let entityIcon = <Briefcase className="w-3.5 h-3.5 text-blue-600" />;
                   if (item.entity_type === 'client_payment') {
@@ -396,6 +414,10 @@ export default function ApprovalsPage() {
                           <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold bg-rose-100 text-rose-800 border border-rose-200">
                             DELETION (SOFT-DELETED)
                           </span>
+                        ) : item.action_type === 'create' ? (
+                          <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-200">
+                            NEW EXPENSE (POSTED)
+                          </span>
                         ) : (
                           <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold bg-blue-100 text-blue-800 border border-blue-200">
                             UPDATED
@@ -403,8 +425,24 @@ export default function ApprovalsPage() {
                         )}
                       </td>
                       <td className="px-6 py-3.5">
-                        <p className="font-semibold text-slate-900">{item.initiator_name}</p>
-                        <p className="text-[11px] text-blue-600 font-medium">{item.initiator_role}</p>
+                        <div className="flex items-center gap-1.5">
+                          <p className="font-semibold text-slate-900">{item.initiator_name}</p>
+                          <span className="text-[9px] bg-slate-100 text-slate-600 px-1 py-0.2 rounded font-mono border border-slate-200">
+                            Initiator
+                          </span>
+                        </div>
+                        <div className="mt-1 flex flex-wrap gap-1">
+                          {approversList.map((name, idx) => (
+                            <span
+                              key={idx}
+                              className="inline-flex items-center gap-0.5 text-[9px] font-medium bg-emerald-50 text-emerald-800 border border-emerald-200 px-1.5 py-0.5 rounded"
+                              title={`Approved by ${name}`}
+                            >
+                              <CheckCircle2 className="w-2.5 h-2.5 text-emerald-600 shrink-0" />
+                              {name.replace('Mr. ', '')}
+                            </span>
+                          ))}
+                        </div>
                       </td>
                       <td className="px-6 py-3.5 max-w-sm">
                         <p className="font-medium text-slate-900">{item.details?.changesSummary || item.entity_name}</p>
@@ -423,12 +461,55 @@ export default function ApprovalsPage() {
                         </button>
                       </td>
                       <td className="px-6 py-3.5 text-center whitespace-nowrap">
-                        {isPending && <Badge variant="pending">PENDING ACKNOWLEDGMENT</Badge>}
-                        {isApproved && <Badge variant="completed">ACKNOWLEDGED</Badge>}
-                        {isRejected && <Badge variant="rejected">FLAGGED</Badge>}
+                        {isRejected ? (
+                          <Badge variant="rejected">FLAGGED</Badge>
+                        ) : isApproved || count >= 3 ? (
+                          <Badge variant="completed">3/5 QUORUM ACHIEVED</Badge>
+                        ) : count === 2 ? (
+                          <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-800 border border-amber-300">
+                            2/3 (Needs 1 Peer)
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold bg-blue-100 text-blue-800 border border-blue-200">
+                            1/3 (Needs 2 Peers)
+                          </span>
+                        )}
                       </td>
                       <td className="px-6 py-3.5 text-right whitespace-nowrap">
-                        {isPending ? (
+                        {isRejected ? (
+                          <div className="text-right text-[11px]">
+                            <p className="font-medium text-rose-700">Flagged by: {item.flagged_by || item.reviewer_name}</p>
+                            {item.review_notes && (
+                              <p className="text-slate-500 italic text-[10px] mt-0.5">"{item.review_notes}"</p>
+                            )}
+                          </div>
+                        ) : isApproved || count >= 3 ? (
+                          <div className="text-right text-[11px]">
+                            <span className="inline-flex items-center gap-1 text-emerald-700 font-semibold bg-emerald-50 border border-emerald-200 px-2 py-1 rounded">
+                              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                              Board Quorum Enacted (3/5)
+                            </span>
+                          </div>
+                        ) : isInitiator ? (
+                          /* Creator cannot approve their own submission */
+                          <div className="text-right">
+                            <span
+                              className="inline-flex items-center px-2.5 py-1 rounded text-[11px] font-medium bg-slate-100 text-slate-600 border border-slate-200"
+                              title="As the initiating director, you cannot sign your own submission. 2 peer directors must review and approve."
+                            >
+                              You initiated this • Needs 2 peer approvals
+                            </span>
+                          </div>
+                        ) : alreadyApproved ? (
+                          /* Peer director who already approved */
+                          <div className="text-right">
+                            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded text-[11px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                              You Approved ({count}/3) • Needs 1 more peer
+                            </span>
+                          </div>
+                        ) : (
+                          /* Eligible peer director who can approve or flag */
                           <div className="flex items-center justify-end gap-1.5">
                             <Button
                               variant="primary"
@@ -437,7 +518,11 @@ export default function ApprovalsPage() {
                               isLoading={isSubmittingAction}
                               icon={<CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />}
                             >
-                              {item.action_type === 'delete' ? 'Approve & Hard Delete' : 'Acknowledge'}
+                              {item.action_type === 'delete'
+                                ? `Approve Delete (${count}/3)`
+                                : item.action_type === 'create'
+                                ? `Approve Expense (${count}/3)`
+                                : `Approve (${count}/3)`}
                             </Button>
                             <Button
                               variant="danger"
@@ -450,15 +535,6 @@ export default function ApprovalsPage() {
                             >
                               Flag
                             </Button>
-                          </div>
-                        ) : (
-                          <div className="text-right text-[11px]">
-                            <p className="font-medium text-slate-800">
-                              {isApproved ? 'Approved by' : 'Flagged by'}: {item.reviewer_name || 'Director'}
-                            </p>
-                            {item.reviewed_at && (
-                              <p className="text-slate-400">{formatDateTime(item.reviewed_at)}</p>
-                            )}
                           </div>
                         )}
                       </td>
@@ -476,22 +552,42 @@ export default function ApprovalsPage() {
         <Modal
           isOpen={isDetailModalOpen}
           onClose={() => setIsDetailModalOpen(false)}
-          title={`Modification Details: ${selectedApproval.entity_name} (${selectedApproval.entity_reference})`}
+          title={`Board Record Details: ${selectedApproval.entity_name} (${selectedApproval.entity_reference})`}
         >
           <div className="space-y-4 text-xs">
-            <div className="p-3 bg-slate-50 border border-slate-200 rounded-md space-y-1">
+            <div className="p-3 bg-slate-50 border border-slate-200 rounded-md space-y-1.5">
               <div className="flex justify-between">
-                <span className="font-semibold text-slate-700">Action:</span>
+                <span className="font-semibold text-slate-700">Action Type:</span>
                 <span className="font-bold uppercase text-slate-900">{selectedApproval.action_type}</span>
               </div>
               <div className="flex justify-between">
-                <span className="font-semibold text-slate-700">Initiated By:</span>
+                <span className="font-semibold text-slate-700">Initiating Director:</span>
                 <span className="font-bold text-slate-900">
                   {selectedApproval.initiator_name} ({selectedApproval.initiator_role})
                 </span>
               </div>
               <div className="flex justify-between">
-                <span className="font-semibold text-slate-700">Timestamp:</span>
+                <span className="font-semibold text-slate-700">3/5 Quorum Status:</span>
+                <span className="font-bold text-blue-700">
+                  {selectedApproval.approvals_count || 1} of 3 Required Approvals (3/5 Board Quorum)
+                </span>
+              </div>
+              <div className="pt-1 border-t border-slate-200">
+                <span className="font-semibold text-slate-700">Directors Who Have Approved:</span>
+                <div className="mt-1 flex flex-wrap gap-1">
+                  {(selectedApproval.approvers || [selectedApproval.initiator_name]).map((name, idx) => (
+                    <span
+                      key={idx}
+                      className="inline-flex items-center gap-1 text-[10px] bg-emerald-50 text-emerald-800 border border-emerald-200 px-2 py-0.5 rounded font-medium"
+                    >
+                      <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                      {name} {idx === 0 ? '(Initiator)' : '(Peer Approval)'}
+                    </span>
+                  ))}
+                </div>
+              </div>
+              <div className="flex justify-between pt-1 border-t border-slate-200">
+                <span className="font-semibold text-slate-700">Submission Timestamp:</span>
                 <span className="text-slate-600">{formatDateTime(selectedApproval.created_at)}</span>
               </div>
               {selectedApproval.details?.reason && (
@@ -521,15 +617,25 @@ export default function ApprovalsPage() {
                   </pre>
                 </div>
                 <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-md">
-                  <p className="font-bold text-emerald-900 mb-2">After Modification</p>
-                  <pre className="text-[10px] overflow-auto max-h-48 font-mono text-emerald-800 bg-white p-2 rounded border border-emerald-200">
+                  <p className="font-bold text-emerald-800 mb-2">After Modification</p>
+                  <pre className="text-[10px] overflow-auto max-h-48 font-mono text-emerald-900 bg-white p-2 rounded border border-emerald-200">
                     {JSON.stringify(selectedApproval.details.after, null, 2)}
                   </pre>
                 </div>
               </div>
             )}
 
-            <div className="pt-2 flex justify-end">
+            {/* Post Record Info */}
+            {!selectedApproval.details?.before && selectedApproval.details?.after && (
+              <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-md">
+                <p className="font-bold text-emerald-800 mb-2">Registered Record Values</p>
+                <pre className="text-[10px] overflow-auto max-h-48 font-mono text-emerald-900 bg-white p-2 rounded border border-emerald-200">
+                  {JSON.stringify(selectedApproval.details.after, null, 2)}
+                </pre>
+              </div>
+            )}
+
+            <div className="flex justify-end pt-2 border-t border-slate-200">
               <Button variant="outline" size="sm" onClick={() => setIsDetailModalOpen(false)}>
                 Close
               </Button>
@@ -538,51 +644,64 @@ export default function ApprovalsPage() {
         </Modal>
       )}
 
-      {/* Flag / Clarification Modal */}
-      {itemToFlag && (
-        <Modal
-          isOpen={isFlagModalOpen}
-          onClose={() => setIsFlagModalOpen(false)}
-          title={`Flag Modification: ${itemToFlag.entity_reference}`}
-        >
-          <form onSubmit={handleExecuteFlag} className="space-y-4 text-xs">
-            <p className="text-slate-600">
-              Flagging halts unquestioned sign-off and demands board clarification. If this is a soft-deleted item, flagging it will restore the record.
+      {/* Flag / Disapproval Modal */}
+      <Modal
+        isOpen={isFlagModalOpen}
+        onClose={() => setIsFlagModalOpen(false)}
+        title={`Flag Modification for Clarification: ${itemToFlag?.entity_name || ''}`}
+        description="Flagging halts peer sign-off and requires the initiating director to provide explanation or revision."
+      >
+        <form onSubmit={handleExecuteFlag} className="space-y-4">
+          <div className="p-3 bg-amber-50 border border-amber-200 rounded-md text-amber-900 text-xs">
+            <p className="font-semibold flex items-center gap-1.5">
+              <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+              Director Oversight Notice:
             </p>
+            <p className="mt-1">
+              Your flag reason will be permanently recorded in the immutable board audit log with your name and timestamp.
+              If this is a soft-deleted item, flagging will immediately cancel the deletion and restore the record.
+            </p>
+          </div>
 
-            <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1">
-                Reason for Flagging / Reversal <span className="text-rose-500">*</span>
-              </label>
-              <textarea
-                required
-                rows={3}
-                placeholder="Explain why this modification or deletion requires board review..."
-                value={flagReason}
-                onChange={(e) => setFlagReason(e.target.value)}
-                className="w-full text-xs p-2.5 border border-slate-300 rounded-md focus:outline-none focus:ring-1 focus:ring-slate-900"
-              />
-            </div>
+          <div>
+            <label className="block text-xs font-semibold text-slate-700 mb-1">
+              Reason for Flagging / Concerns *
+            </label>
+            <textarea
+              required
+              rows={3}
+              value={flagReason}
+              onChange={(e) => setFlagReason(e.target.value)}
+              placeholder="e.g. Invoice amount discrepancy detected / Missing official receipt / Unbudgeted item"
+              className="w-full text-xs p-2.5 bg-slate-50 border border-slate-300 rounded-md focus:outline-none focus:ring-1 focus:ring-slate-900"
+            />
+          </div>
 
-            <div className="flex justify-end gap-2 pt-2">
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={() => {
-                  setIsFlagModalOpen(false);
-                  setItemToFlag(null);
-                }}
-              >
-                Cancel
-              </Button>
-              <Button type="submit" variant="danger" size="sm" isLoading={isSubmittingAction}>
-                Confirm Flag
-              </Button>
-            </div>
-          </form>
-        </Modal>
-      )}
+          <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={() => {
+                setIsFlagModalOpen(false);
+                setItemToFlag(null);
+                setFlagReason('');
+              }}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="submit"
+              variant="danger"
+              size="sm"
+              isLoading={isSubmittingAction}
+              icon={<AlertTriangle className="w-3.5 h-3.5" />}
+            >
+              Confirm Flag
+            </Button>
+          </div>
+        </form>
+      </Modal>
     </DashboardLayout>
   );
 }
