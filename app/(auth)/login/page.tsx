@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState } from 'react';
@@ -5,50 +6,71 @@ import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { createClient } from '@/lib/supabase/client';
-import { ShieldCheck, AlertCircle, CheckCircle2 } from 'lucide-react';
-import { setStoredDirector, CANONICAL_MAP } from '@/lib/hooks/useCurrentDirector';
+import { ShieldCheck, Eye, EyeOff } from 'lucide-react';
+import { toast } from 'sonner';
+import {
+  setStoredDirector,
+  CANONICAL_MAP,
+} from '@/lib/hooks/useCurrentDirector';
 
 export default function LoginPage() {
   const router = useRouter();
+
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [error, setError] = useState<string | null>(null);
-  const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    setError(null);
-    setSuccessMessage(null);
+
+    if (isLoading) return;
+
     setIsLoading(true);
+
+    let navigationStarted = false;
 
     try {
       const supabase = createClient();
-      const { data, error: authError } = await supabase.auth.signInWithPassword({
-        email,
-        password,
-      });
+
+      // Original authentication logic
+      const { data, error: authError } =
+          await supabase.auth.signInWithPassword({
+            email,
+            password,
+          });
 
       if (authError) {
-        setError(authError.message || 'Invalid corporate credentials.');
-        setIsLoading(false);
+        toast.error('Authentication failed', {
+          description:
+              authError.message ||
+              'Invalid corporate credentials.',
+        });
         return;
       }
 
       if (data.user) {
+        // Original email and canonical name resolution
         const cleanEmail = email.trim().toLowerCase();
-        const canonicalName = CANONICAL_MAP[cleanEmail] || data.user.user_metadata?.full_name || '';
 
-        // Query profile to inspect first-login password change mandate
+        const canonicalName =
+            CANONICAL_MAP[cleanEmail] ||
+            data.user.user_metadata?.full_name ||
+            '';
+
+        // Original profile query
         const { data: profile } = await supabase
-          .from('profiles')
-          .select('full_name, must_change_password, role')
-          .eq('id', data.user.id)
-          .maybeSingle();
+            .from('profiles')
+            .select('full_name, must_change_password, role')
+            .eq('id', data.user.id)
+            .maybeSingle();
 
-        const resolvedName = canonicalName || profile?.full_name || 'Director';
+        const resolvedName =
+            canonicalName ||
+            profile?.full_name ||
+            'Director';
 
-        // Pre-seed in-memory & localStorage cache synchronously before route push
+        // Original director cache logic
         setStoredDirector({
           id: data.user.id,
           name: resolvedName,
@@ -56,8 +78,14 @@ export default function LoginPage() {
           role: profile?.role || 'Director',
         });
 
-        // Display corporate authorization success feedback
-        setSuccessMessage(`Login successful! Welcome, ${resolvedName}. Redirecting to ledger...`);
+        // Sonner success notification
+        toast.success('Login successful', {
+          description: `Welcome, ${resolvedName}! Redirecting to ledger...`,
+          duration: 4000,
+        });
+
+        // Preserve original redirect behavior
+        navigationStarted = true;
 
         setTimeout(() => {
           if (profile?.must_change_password) {
@@ -66,92 +94,162 @@ export default function LoginPage() {
             router.push('/dashboard');
           }
         }, 800);
+
+      } else {
+        toast.error('Authentication failed', {
+          description: 'Unable to verify your account.',
+        });
       }
-    } catch {
-      setError('An unexpected connection error occurred. Please verify network status.');
-      setIsLoading(false);
+
+    } catch (error) {
+      console.error('Login error:', error);
+
+      toast.error('Connection error', {
+        description:
+            'An unexpected connection error occurred. Please verify network status.',
+      });
+
+    } finally {
+      // Keep spinner active after successful login
+      // until the login page unmounts.
+      if (!navigationStarted) {
+        setIsLoading(false);
+      }
     }
   };
 
   return (
-    <div className="min-h-screen bg-slate-900 flex flex-col justify-center py-12 sm:px-6 lg:px-8">
-      <div className="sm:mx-auto sm:w-full sm:max-w-md text-center">
-        <img
-          src="/Logo.webp"
-          alt="Devplux Logo"
-          className="w-16 h-16 object-contain mx-auto mb-2 drop-shadow-md"
+      <div className="relative flex min-h-screen flex-col justify-center overflow-hidden bg-slate-900 px-4 py-12 sm:px-6 lg:px-8">
+
+        {/* Subtle corporate grid */}
+        <div
+            className="pointer-events-none absolute inset-0 opacity-[0.12]"
+            style={{
+              backgroundImage: `
+            linear-gradient(to right, #94A3B8 1px, transparent 1px),
+            linear-gradient(to bottom, #94A3B8 1px, transparent 1px)
+          `,
+              backgroundSize: '64px 64px',
+              maskImage:
+                  'linear-gradient(to bottom, transparent, black 25%, black 75%, transparent)',
+              WebkitMaskImage:
+                  'linear-gradient(to bottom, transparent, black 25%, black 75%, transparent)',
+            }}
         />
-        <h2 className="mt-4 text-2xl font-bold tracking-tight text-white">
-          DEVPLUX (PVT) LTD
-        </h2>
-        <p className="mt-1 text-xs text-slate-400">
-          Executive Financial Management System & Corporate Ledger
-        </p>
-      </div>
 
-      <div className="mt-8 sm:mx-auto sm:w-full sm:max-w-md">
-        <div className="bg-white py-8 px-6 shadow-xl rounded-lg border border-slate-200 sm:px-10">
-          <div className="flex items-center gap-2 px-3 py-2 rounded-md bg-slate-50 border border-slate-200 text-xs text-slate-600 mb-6">
-            <ShieldCheck className="w-4 h-4 text-blue-600 shrink-0" />
-            <span>Authorized access restricted to Devplux directors only.</span>
-          </div>
+        {/* Company branding */}
+        <div className="relative z-10 sm:mx-auto sm:w-full sm:max-w-md text-center">
+          <img
+              src="/Logo.webp"
+              alt="DevPlux Logo"
+              className="mx-auto mb-2 h-16 w-16 object-contain drop-shadow-md"
+          />
 
-          {error && (
-            <div className="mb-4 p-3 rounded-md bg-rose-50 border border-rose-200 flex items-start gap-2 text-xs text-rose-700 animate-in fade-in">
-              <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
-              <span>{error}</span>
+          <h2 className="mt-4 text-2xl font-bold tracking-tight text-white">
+            DEVPLUX (PVT) LTD
+          </h2>
+
+          <p className="mt-1 text-xs text-slate-400">
+            Executive Financial Management System & Corporate Ledger
+          </p>
+        </div>
+
+        {/* Login card */}
+        <div className="relative z-10 mt-8 sm:mx-auto sm:w-full sm:max-w-md">
+          <div className="rounded-2xl border border-slate-200 bg-white px-6 py-8 shadow-xl sm:px-10">
+
+            {/* Security notice */}
+            <div className="mb-6 flex items-center gap-2 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
+              <ShieldCheck className="h-4 w-4 shrink-0 text-blue-600" />
+
+              <span>
+              Authorized access restricted to DevPlux directors only.
+            </span>
             </div>
-          )}
 
-          {successMessage && (
-            <div className="mb-4 p-3 rounded-md bg-emerald-50 border border-emerald-200 flex items-start gap-2 text-xs text-emerald-800 animate-in fade-in">
-              <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
-              <div className="font-medium">
-                <span>{successMessage}</span>
+            {/* Login form */}
+            <form onSubmit={handleLogin} className="space-y-4">
+
+              {/* Email */}
+              <Input
+                  label="Director Corporate Email"
+                  type="email"
+                  required
+                  disabled={isLoading}
+                  autoComplete="username"
+                  placeholder="e.g. director1@devplux.com"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+              />
+
+              {/* Password */}
+              <div className="relative">
+                <Input
+                    label="Password"
+                    type={showPassword ? 'text' : 'password'}
+                    required
+                    disabled={isLoading}
+                    autoComplete="current-password"
+                    placeholder="••••••••••••"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    className="pr-12"
+                />
+
+                {/* Password visibility */}
+                <button
+                    type="button"
+                    onClick={() =>
+                        setShowPassword((prev) => !prev)
+                    }
+                    disabled={isLoading}
+                    className="absolute bottom-1 right-2 rounded p-1 text-slate-400 transition-colors hover:text-blue-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
+                    aria-label={
+                      showPassword
+                          ? 'Hide password'
+                          : 'Show password'
+                    }
+                    aria-pressed={showPassword}
+                    title={
+                      showPassword
+                          ? 'Hide password'
+                          : 'Show password'
+                    }
+                >
+                  {showPassword ? (
+                      <EyeOff className="h-5 w-5" />
+                  ) : (
+                      <Eye className="h-5 w-5" />
+                  )}
+                </button>
               </div>
+
+              {/* Login button */}
+              <div className="pt-2">
+                <Button
+                    type="submit"
+                    className="w-full"
+                    isLoading={isLoading}
+                    disabled={isLoading}
+                >
+                  {isLoading
+                      ? 'Authenticating...'
+                      : 'Authenticate as Director'}
+                </Button>
+              </div>
+
+            </form>
+
+            {/* Footer */}
+            <div className="mt-6 border-t border-slate-100 pt-4 text-center">
+              <p className="text-[11px] text-slate-400">
+                DevPlux (Pvt) Ltd | Multi-Director Governance
+              </p>
             </div>
-          )}
 
-          <form onSubmit={handleLogin} className="space-y-4">
-            <Input
-              label="Director Corporate Email"
-              type="email"
-              required
-              disabled={Boolean(successMessage) || isLoading}
-              placeholder="e.g. director1@devplux.com"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-            />
-
-            <Input
-              label="Password"
-              type="password"
-              required
-              disabled={Boolean(successMessage) || isLoading}
-              placeholder="••••••••••••"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-            />
-
-            <div className="pt-2">
-              <Button
-                type="submit"
-                className="w-full"
-                isLoading={isLoading}
-                disabled={Boolean(successMessage)}
-              >
-                {successMessage ? 'Authorized ✓ Redirecting...' : 'Authenticate as Director'}
-              </Button>
-            </div>
-          </form>
-
-          <div className="mt-6 border-t border-slate-100 pt-4 text-center">
-            <p className="text-[11px] text-slate-400">
-              Devplux (Pvt) Ltd | Multi-Director Governance
-            </p>
           </div>
         </div>
+
       </div>
-    </div>
   );
 }

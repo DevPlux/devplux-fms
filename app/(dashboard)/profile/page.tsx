@@ -6,9 +6,10 @@ import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Badge } from '@/components/ui/Badge';
-import { UserCheck, KeyRound, Shield, CheckCircle2, RefreshCw } from 'lucide-react';
+import { UserCheck, KeyRound, Shield, RefreshCw, Eye, EyeOff } from 'lucide-react';
 import { changePasswordSchema } from '@/lib/validation/auth-schema';
 import { createClient } from '@/lib/supabase/client';
+import { toast } from 'sonner';
 import { getStoredDirector, setStoredDirector, CANONICAL_MAP } from '@/lib/hooks/useCurrentDirector';
 
 interface DirectorProfile {
@@ -50,7 +51,9 @@ export default function ProfilePage() {
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
-  const [statusMessage, setStatusMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [showCurrentPassword, setShowCurrentPassword] = useState(false);
+  const [showNewPassword, setShowNewPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   useEffect(() => {
@@ -106,9 +109,9 @@ export default function ProfilePage() {
         if (user && isMounted) {
           const email = user.email || '';
           const resolvedName =
-            CANONICAL_MAP[email.toLowerCase()] ||
-            user.user_metadata?.full_name ||
-            '';
+              CANONICAL_MAP[email.toLowerCase()] ||
+              user.user_metadata?.full_name ||
+              '';
 
           if (resolvedName) {
             setProfile({
@@ -143,7 +146,6 @@ export default function ProfilePage() {
 
   const handlePasswordChange = async (e: React.FormEvent) => {
     e.preventDefault();
-    setStatusMessage(null);
 
     const validation = changePasswordSchema.safeParse({
       currentPassword,
@@ -152,7 +154,7 @@ export default function ProfilePage() {
     });
 
     if (!validation.success) {
-      setStatusMessage({ type: 'error', text: validation.error.errors[0]?.message || 'Invalid password' });
+      toast.error('Validation failed', { description: validation.error.errors[0]?.message || 'Invalid password' });
       return;
     }
 
@@ -167,7 +169,7 @@ export default function ProfilePage() {
       });
 
       if (error) {
-        setStatusMessage({ type: 'error', text: error.message });
+        toast.error('Password update failed', { description: error.message });
       } else {
         // Enact complete setup in backend database
         try {
@@ -180,16 +182,15 @@ export default function ProfilePage() {
           // ignore
         }
 
-        setStatusMessage({
-          type: 'success',
-          text: 'Password successfully changed and updated in secure credentials store.',
+        toast.success('Password updated', {
+          description: 'Password successfully changed and updated in secure credentials store.',
         });
         setCurrentPassword('');
         setNewPassword('');
         setConfirmPassword('');
       }
     } catch {
-      setStatusMessage({ type: 'success', text: 'Password successfully updated.' });
+      toast.success('Password successfully updated.');
       setCurrentPassword('');
       setNewPassword('');
       setConfirmPassword('');
@@ -199,125 +200,148 @@ export default function ProfilePage() {
   };
 
   return (
-    <DashboardLayout
-      pageTitle="Director Profile & Security"
-      pageDescription="Individual director account management and cryptographic credential settings."
-      userRole="director"
-    >
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Profile Card */}
-        <Card className="lg:col-span-1">
-          <CardHeader>
-            <div className="flex items-center gap-2">
-              <UserCheck className="w-5 h-5 text-blue-600" />
-              <CardTitle>Director Information</CardTitle>
-            </div>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            {isLoading ? (
-              <div className="py-8 flex items-center justify-center gap-2 text-xs text-slate-400">
-                <RefreshCw className="w-4 h-4 animate-spin text-blue-600" />
-                <span>Loading director profile...</span>
+      <DashboardLayout
+          pageTitle="Director Profile & Security"
+          pageDescription="Individual director account management and cryptographic credential settings."
+          userRole="director"
+      >
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          {/* Profile Card */}
+          <Card className="lg:col-span-1">
+            <CardHeader>
+              <div className="flex items-center gap-2">
+                <UserCheck className="w-5 h-5 text-blue-600" />
+                <CardTitle>Director Information</CardTitle>
               </div>
-            ) : (
-              <>
-                <div>
-                  <p className="text-xs text-slate-400 font-medium">Full Legal Name</p>
-                  <p className="text-sm font-semibold text-slate-900 mt-0.5">{profile.name}</p>
-                </div>
-
-                <div>
-                  <p className="text-xs text-slate-400 font-medium">Corporate Email</p>
-                  <p className="text-sm font-mono text-slate-800 mt-0.5">{profile.email}</p>
-                </div>
-
-                <div>
-                  <p className="text-xs text-slate-400 font-medium">Governance Role</p>
-                  <p className="text-sm font-semibold text-blue-900 mt-0.5">{profile.role}</p>
-                </div>
-
-                <div className="grid grid-cols-2 gap-4 pt-2 border-t border-slate-100">
-                  <div>
-                    <p className="text-xs text-slate-400 font-medium">Shareholding</p>
-                    <p className="text-sm font-bold text-slate-900 mt-0.5">{profile.sharePercentage}</p>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {isLoading ? (
+                  <div className="py-8 flex items-center justify-center gap-2 text-xs text-slate-400">
+                    <RefreshCw className="w-4 h-4 animate-spin text-blue-600" />
+                    <span>Loading director profile...</span>
                   </div>
-                  <div>
-                    <p className="text-xs text-slate-400 font-medium">Equity Capital</p>
-                    <p className="text-xs font-bold text-slate-900 mt-0.5">{profile.capitalContributed}</p>
-                  </div>
+              ) : (
+                  <>
+                    <div>
+                      <p className="text-xs text-slate-400 font-medium">Full Legal Name</p>
+                      <p className="text-sm font-semibold text-slate-900 mt-0.5">{profile.name}</p>
+                    </div>
+
+                    <div>
+                      <p className="text-xs text-slate-400 font-medium">Corporate Email</p>
+                      <p className="text-sm font-mono text-slate-800 mt-0.5">{profile.email}</p>
+                    </div>
+
+                    <div>
+                      <p className="text-xs text-slate-400 font-medium">Governance Role</p>
+                      <p className="text-sm font-semibold text-blue-900 mt-0.5">{profile.role}</p>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-4 pt-2 border-t border-slate-100">
+                      <div>
+                        <p className="text-xs text-slate-400 font-medium">Shareholding</p>
+                        <p className="text-sm font-bold text-slate-900 mt-0.5">{profile.sharePercentage}</p>
+                      </div>
+                      <div>
+                        <p className="text-xs text-slate-400 font-medium">Equity Capital</p>
+                        <p className="text-xs font-bold text-slate-900 mt-0.5">{profile.capitalContributed}</p>
+                      </div>
+                    </div>
+
+                    <div className="pt-2">
+                      <Badge variant="completed">ACCOUNT ACTIVE & VERIFIED</Badge>
+                    </div>
+                  </>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Change Password Form */}
+          <Card className="lg:col-span-2">
+            <CardHeader>
+              <div className="flex items-center gap-2">
+                <KeyRound className="w-5 h-5 text-amber-500" />
+                <CardTitle>Update Security Password</CardTitle>
+              </div>
+              <p className="text-xs text-slate-500">
+                Passwords are never logged or exposed. Minimum 8 characters with complexity rules.
+              </p>
+            </CardHeader>
+            <CardContent>
+              <form onSubmit={handlePasswordChange} className="space-y-4 max-w-lg">
+                <div className="relative">
+                  <Input
+                      label="Current Password"
+                      type={showCurrentPassword ? 'text' : 'password'}
+                      required
+                      placeholder="Enter current password"
+                      value={currentPassword}
+                      onChange={(e) => setCurrentPassword(e.target.value)}
+                      className="pr-12"
+                  />
+                  <button
+                      type="button"
+                      onClick={() => setShowCurrentPassword((prev) => !prev)}
+                      className="absolute right-2 top-[21px] flex h-9 w-9 items-center justify-center rounded-md text-slate-400 hover:text-blue-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+                      aria-label={showCurrentPassword ? 'Hide current password' : 'Show current password'}
+                      aria-pressed={showCurrentPassword}
+                  >
+                    {showCurrentPassword ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
+                  </button>
+                </div>
+
+                <div className="relative">
+                  <Input
+                      label="New Secure Password"
+                      type={showNewPassword ? 'text' : 'password'}
+                      required
+                      placeholder="••••••••••••"
+                      value={newPassword}
+                      onChange={(e) => setNewPassword(e.target.value)}
+                      className="pr-12"
+                      helperText="Must include uppercase, lowercase, numeric, and special character."
+                  />
+                  <button
+                      type="button"
+                      onClick={() => setShowNewPassword((prev) => !prev)}
+                      className="absolute right-2 top-[21px] flex h-9 w-9 items-center justify-center rounded-md text-slate-400 hover:text-blue-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+                      aria-label={showNewPassword ? 'Hide new secure password' : 'Show new secure password'}
+                      aria-pressed={showNewPassword}
+                  >
+                    {showNewPassword ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
+                  </button>
+                </div>
+
+                <div className="relative">
+                  <Input
+                      label="Confirm New Password"
+                      type={showConfirmPassword ? 'text' : 'password'}
+                      required
+                      placeholder="Re-enter new secure password"
+                      value={confirmPassword}
+                      onChange={(e) => setConfirmPassword(e.target.value)}
+                      className="pr-12"
+                  />
+                  <button
+                      type="button"
+                      onClick={() => setShowConfirmPassword((prev) => !prev)}
+                      className="absolute right-2 top-[21px] flex h-9 w-9 items-center justify-center rounded-md text-slate-400 hover:text-blue-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+                      aria-label={showConfirmPassword ? 'Hide confirm new password' : 'Show confirm new password'}
+                      aria-pressed={showConfirmPassword}
+                  >
+                    {showConfirmPassword ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
+                  </button>
                 </div>
 
                 <div className="pt-2">
-                  <Badge variant="completed">ACCOUNT ACTIVE & VERIFIED</Badge>
+                  <Button type="submit" variant="primary" isLoading={isSubmitting}>
+                    Save New Password
+                  </Button>
                 </div>
-              </>
-            )}
-          </CardContent>
-        </Card>
-
-        {/* Change Password Form */}
-        <Card className="lg:col-span-2">
-          <CardHeader>
-            <div className="flex items-center gap-2">
-              <KeyRound className="w-5 h-5 text-amber-500" />
-              <CardTitle>Update Security Password</CardTitle>
-            </div>
-            <p className="text-xs text-slate-500">
-              Passwords are never logged or exposed. Minimum 8 characters with complexity rules.
-            </p>
-          </CardHeader>
-          <CardContent>
-            {statusMessage && (
-              <div
-                className={`p-3 rounded-md mb-4 text-xs font-medium flex items-center gap-2 ${
-                  statusMessage.type === 'success'
-                    ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
-                    : 'bg-rose-50 text-rose-800 border border-rose-200'
-                }`}
-              >
-                {statusMessage.type === 'success' && <CheckCircle2 className="w-4 h-4 text-emerald-600" />}
-                <span>{statusMessage.text}</span>
-              </div>
-            )}
-
-            <form onSubmit={handlePasswordChange} className="space-y-4 max-w-lg">
-              <Input
-                label="Current Password"
-                type="password"
-                required
-                placeholder="Enter current password"
-                value={currentPassword}
-                onChange={(e) => setCurrentPassword(e.target.value)}
-              />
-
-              <Input
-                label="New Secure Password"
-                type="password"
-                required
-                placeholder="••••••••••••"
-                value={newPassword}
-                onChange={(e) => setNewPassword(e.target.value)}
-                helperText="Must include uppercase, lowercase, numeric, and special character."
-              />
-
-              <Input
-                label="Confirm New Password"
-                type="password"
-                required
-                placeholder="Re-enter new secure password"
-                value={confirmPassword}
-                onChange={(e) => setConfirmPassword(e.target.value)}
-              />
-
-              <div className="pt-2">
-                <Button type="submit" variant="primary" isLoading={isSubmitting}>
-                  Save New Password
-                </Button>
-              </div>
-            </form>
-          </CardContent>
-        </Card>
-      </div>
-    </DashboardLayout>
+              </form>
+            </CardContent>
+          </Card>
+        </div>
+      </DashboardLayout>
   );
 }
