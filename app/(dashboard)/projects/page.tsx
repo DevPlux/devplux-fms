@@ -14,6 +14,7 @@ import { exportToExcel } from '@/lib/utilities/excel-export';
 import { generateFinancialPDF } from '@/lib/utilities/pdf-export';
 import Link from 'next/link';
 import { useCurrentDirector } from '@/lib/hooks/useCurrentDirector';
+import { toast } from 'sonner';
 
 interface ProjectRecord {
   id: string;
@@ -128,7 +129,9 @@ export default function ProjectsPage() {
 
     const val = parseFloat(contractValue);
     if (isNaN(val) || val <= 0) {
-      alert('Please enter a valid positive contract value');
+      toast.error('Invalid contract value', {
+        description: 'Please enter a valid positive contract value.',
+      });
       setIsSubmitting(false);
       return;
     }
@@ -174,7 +177,9 @@ export default function ProjectsPage() {
       });
       const resData = await res.json();
       if (!res.ok) {
-        alert(`Failed to save project to database: ${resData.error || 'Server error'}`);
+        toast.error('Project creation failed', {
+          description: resData.error || 'Failed to save project to database.',
+        });
         setIsSubmitting(false);
         return;
       }
@@ -187,6 +192,12 @@ export default function ProjectsPage() {
       setProjects([newProject, ...projects]);
       setIsModalOpen(false);
 
+      // Success toast - only after successful API response
+      toast.success('Project created successfully!', {
+        description: `${projectName} has been registered in the DevPlux Financial Projects Register.`,
+        duration: 4000,
+      });
+
       // Reset form
       setProjectName('');
       setClientName('');
@@ -195,7 +206,11 @@ export default function ProjectsPage() {
       setContractValue('');
       setNotes('');
     } catch (err: any) {
-      alert(`Error saving project: ${err.message}`);
+      toast.error('Something went wrong', {
+        description: err instanceof Error
+            ? err.message
+            : 'Unable to create project. Please try again.',
+      });
     } finally {
       setIsSubmitting(false);
     }
