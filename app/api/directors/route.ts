@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createAdminClient } from '@/lib/supabase/admin';
+import { getLocalProfiles } from '@/lib/storage/profile-storage';
 
 export const dynamic = 'force-dynamic';
 
@@ -7,6 +8,7 @@ export interface DirectorRecord {
   id: string;
   name: string;
   email: string;
+  avatarUrl?: string;
   role: 'director';
   roleTitle: 'Director';
   sharePercentage: number;
@@ -80,12 +82,30 @@ const CANONICAL_NAMES_BY_EMAIL: Record<string, string> = {
 export async function GET() {
   try {
     const adminSupabase = createAdminClient();
+    const localProfiles = getLocalProfiles();
 
-    // 1. Fetch live profiles from Supabase database
-    const { data: profiles, error: profilesError } = await adminSupabase
-      .from('profiles')
-      .select('id, full_name, email, role, must_change_password, is_active, created_at, updated_at')
-      .order('created_at', { ascending: true });
+    // 1. Fetch live profiles from Supabase database (with avatar_url fallback)
+    let profiles: any[] | null = null;
+    let profilesError: any = null;
+    try {
+      const { data, error } = await adminSupabase
+        .from('profiles')
+        .select('id, full_name, email, role, must_change_password, is_active, avatar_url, created_at, updated_at')
+        .order('created_at', { ascending: true });
+      profiles = data;
+      profilesError = error;
+    } catch {
+      try {
+        const { data, error } = await adminSupabase
+          .from('profiles')
+          .select('id, full_name, email, role, must_change_password, is_active, created_at, updated_at')
+          .order('created_at', { ascending: true });
+        profiles = data;
+        profilesError = error;
+      } catch (err) {
+        profilesError = err;
+      }
+    }
 
     // 2. Fetch company memberships for live shareholdings
     const { data: memberships } = await adminSupabase
@@ -111,24 +131,27 @@ export async function GET() {
       const enrichedDirectors: DirectorRecord[] = CANONICAL_DIRECTORS.map((canonical, idx) => {
         const emailKey = canonical.email.toLowerCase();
         const dbProfile = dbDirectorsByEmail.get(emailKey);
+        const localProf = localProfiles[emailKey] || (dbProfile ? localProfiles[dbProfile.id] : null);
 
         if (dbProfile) {
           const mem = membershipMap.get(dbProfile.id);
           const share = mem?.share_percentage !== undefined ? Number(mem.share_percentage) : canonical.sharePercentage;
 
-          let displayName = dbProfile.full_name;
+          let displayName = dbProfile.full_name || localProf?.name;
           if (
             !displayName ||
-            displayName.toLowerCase().startsWith('director ') ||
-            CANONICAL_NAMES_BY_EMAIL[emailKey]
+            displayName.toLowerCase().startsWith('director ')
           ) {
-            displayName = CANONICAL_NAMES_BY_EMAIL[emailKey] || dbProfile.full_name;
+            displayName = CANONICAL_NAMES_BY_EMAIL[emailKey] || dbProfile.full_name || canonical.name;
           }
+
+          const avatarUrl = dbProfile.avatar_url || localProf?.avatar_url || undefined;
 
           return {
             id: dbProfile.id,
             name: displayName,
             email: dbProfile.email,
+            avatarUrl,
             role: 'director' as const,
             roleTitle: 'Director' as const,
             sharePercentage: share,
@@ -139,9 +162,12 @@ export async function GET() {
           };
         }
 
+        const localFallback = localProfiles[emailKey];
         return {
           id: `canonical-${idx + 1}`,
           ...canonical,
+          name: localFallback?.name || canonical.name,
+          avatarUrl: localFallback?.avatar_url || undefined,
           mustChangePassword: true,
         };
       });
@@ -151,10 +177,12 @@ export async function GET() {
         const emailKey = (p.email || '').toLowerCase().trim();
         if (emailKey && !CANONICAL_DIRECTORS.some((c) => c.email.toLowerCase() === emailKey)) {
           const mem = membershipMap.get(p.id);
+          const localFallback = localProfiles[emailKey] || localProfiles[p.id];
           enrichedDirectors.push({
             id: p.id,
-            name: p.full_name || 'Director',
+            name: p.full_name || localFallback?.name || 'Director',
             email: p.email,
+            avatarUrl: p.avatar_url || localFallback?.avatar_url || undefined,
             role: 'director' as const,
             roleTitle: 'Director' as const,
             sharePercentage: mem?.share_percentage ? Number(mem.share_percentage) : 0,

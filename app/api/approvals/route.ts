@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
+import fs from 'fs';
+import path from 'path';
 
 const COMPANY_ID = 'a0000000-0000-0000-0000-000000000001';
 
@@ -18,6 +20,29 @@ const setApprovalsCache = (items: any[]) => {
 };
 const getReviewedMap = (): Map<string, any> => (globalThis as any).__devplux_reviewed_approvals__;
 
+const DATA_DIR = path.join(process.cwd(), 'data');
+const APPROVALS_DATA_FILE = path.join(DATA_DIR, 'approvals.json');
+
+function readLocalApprovals(): any[] {
+  try {
+    if (fs.existsSync(APPROVALS_DATA_FILE)) {
+      const content = fs.readFileSync(APPROVALS_DATA_FILE, 'utf-8');
+      const parsed = JSON.parse(content);
+      if (Array.isArray(parsed)) return parsed;
+    }
+  } catch {}
+  return [];
+}
+
+function writeLocalApprovals(items: any[]): void {
+  try {
+    if (!fs.existsSync(DATA_DIR)) {
+      fs.mkdirSync(DATA_DIR, { recursive: true });
+    }
+    fs.writeFileSync(APPROVALS_DATA_FILE, JSON.stringify(items, null, 2), 'utf-8');
+  } catch {}
+}
+
 export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);
@@ -26,6 +51,7 @@ export async function GET(req: NextRequest) {
     const adminSupabase = createAdminClient();
     const reviewedMap = getReviewedMap();
     const cache = getApprovalsCache();
+    const localApprovals = readLocalApprovals();
 
     // 1. Fetch from modification_approvals table if present in DB
     let dbApprovals: any[] = [];
@@ -34,12 +60,23 @@ export async function GET(req: NextRequest) {
         .from('modification_approvals')
         .select('*')
         .order('created_at', { ascending: false });
-      if (!error && data) dbApprovals = data;
+      if (!error && Array.isArray(data)) {
+        dbApprovals = data.map((item: any) => {
+          if (item.details?.actual_entity_type) {
+            return {
+              ...item,
+              entity_type: item.details.actual_entity_type,
+              action_type: item.details.actual_action_type || item.action_type,
+            };
+          }
+          return item;
+        });
+      }
     } catch {
       // ignore
     }
 
-    // 2. Fetch authoritative expenses from Supabase to guarantee NO expense is ever missing from Approvals
+    // 2. Fetch authoritative expenses from Supabase
     let dbExpenses: any[] = [];
     try {
       const { data: exps } = await adminSupabase
@@ -79,7 +116,7 @@ export async function GET(req: NextRequest) {
       // ignore
     }
 
-    // Set of IDs already in DB approvals or in-memory cache
+    // Track existing entity and record IDs
     const registeredEntityIds = new Set<string>();
     dbApprovals.forEach((a: any) => {
       if (a.entity_id) registeredEntityIds.add(String(a.entity_id));
@@ -91,8 +128,13 @@ export async function GET(req: NextRequest) {
       if (a.entity_reference) registeredEntityIds.add(String(a.entity_reference));
       if (a.id) registeredEntityIds.add(String(a.id));
     });
+    localApprovals.forEach((a: any) => {
+      if (a.entity_id) registeredEntityIds.add(String(a.entity_id));
+      if (a.entity_reference) registeredEntityIds.add(String(a.entity_reference));
+      if (a.id) registeredEntityIds.add(String(a.id));
+    });
 
-    // Synthesize approvals for any DB expenses not yet in the approvals register
+    // 3. Synthesize approvals for any DB expenses not yet in the approvals register
     const synthesizedExpenses: any[] = [];
     dbExpenses.forEach((exp: any) => {
       const txn = (exp.transactions as any) || {};
@@ -109,7 +151,6 @@ export async function GET(req: NextRequest) {
       const amount = Number(txn.amount || 0);
 
       const reviewRecord = reviewedMap.get(exp.id) || reviewedMap.get(refNo) || reviewedMap.get(`appr-${exp.id}`);
-
       const initialApprovers = reviewRecord?.approvers || [actorName];
       const approvalsCount = reviewRecord?.approvals_count || initialApprovers.length;
       const isQuorum = approvalsCount >= 3;
@@ -151,10 +192,27 @@ export async function GET(req: NextRequest) {
       });
     });
 
-    // Merge in order of precedence: Synthesized < In-Memory Cache < DB Table
+    // 4. Merge all sources in precedence: Synthesized < Local Approvals < Memory Cache < DB Table
     const mergedMap = new Map<string, any>();
 
     synthesizedExpenses.forEach((item) => mergedMap.set(item.id, item));
+
+    localApprovals.forEach((item) => {
+      const rev =
+        reviewedMap.get(item.id) ||
+        reviewedMap.get(item.entity_id) ||
+        reviewedMap.get(item.entity_reference);
+      if (rev) {
+        item.status = rev.status;
+        item.reviewer_name = rev.reviewer_name;
+        item.reviewed_at = rev.reviewed_at;
+        item.review_notes = rev.review_notes;
+        item.approvers = rev.approvers || item.approvers || [item.initiator_name];
+        item.approvals_count = rev.approvals_count || item.approvals_count || item.approvers.length;
+        item.flagged_by = rev.flagged_by || item.flagged_by;
+      }
+      mergedMap.set(item.id, item);
+    });
 
     cache.forEach((item) => {
       const rev =
@@ -190,6 +248,79 @@ export async function GET(req: NextRequest) {
       mergedMap.set(item.id, item);
     });
 
+    // 5. Authoritative scan for ANY contractor marked pending_deletion
+    try {
+      let contractorsList: any[] = [];
+      const { data: cData } = await adminSupabase.from('contractors').select('*');
+      if (cData && Array.isArray(cData)) contractorsList = cData;
+
+      const cDataFile = path.join(process.cwd(), 'data', 'contractors.json');
+      if (fs.existsSync(cDataFile)) {
+        try {
+          const localC = JSON.parse(fs.readFileSync(cDataFile, 'utf-8'));
+          if (Array.isArray(localC)) {
+            localC.forEach((lc: any) => {
+              if (!contractorsList.some((c: any) => String(c.id) === String(lc.id))) {
+                contractorsList.push(lc);
+              }
+            });
+          }
+        } catch {}
+      }
+
+      contractorsList.forEach((c: any) => {
+        if (c.status === 'pending_deletion') {
+          const delId = `appr-del-cnt-${c.id}`;
+          const entityRef = `DEL-CNT-${String(c.id).slice(0, 8)}`;
+          const reviewRecord =
+            reviewedMap.get(delId) ||
+            reviewedMap.get(c.id) ||
+            reviewedMap.get(entityRef);
+
+          const initialApprovers = reviewRecord?.approvers || ['Mr. Chanuka Lakshan'];
+          const approvalsCount = reviewRecord?.approvals_count || initialApprovers.length;
+          const isQuorum = approvalsCount >= 3;
+
+          const synthesizedContractorApproval = {
+            id: delId,
+            company_id: COMPANY_ID,
+            entity_type: 'contractor',
+            entity_id: c.id,
+            entity_reference: entityRef,
+            entity_name: `${c.name} (${c.project_display_id || c.projectDisplayId || 'General'})`,
+            action_type: 'delete',
+            initiator_id: null,
+            initiator_name: 'Mr. Chanuka Lakshan',
+            initiator_role: 'Director',
+            approvers: initialApprovers,
+            approvals_count: approvalsCount,
+            required_approvals: 3,
+            details: {
+              changesSummary: `Contractor removal request for ${c.name} (${c.project_display_id || c.projectDisplayId || 'General'}) awaiting 3/5 Board Quorum.`,
+              reason: 'Contract concluded / Contractor removal requested',
+              before: {
+                contractorName: c.name,
+                project: c.project_display_id || c.projectDisplayId || 'General',
+                agreedFee: Number(c.agreed_fee ?? c.agreedFee ?? 0),
+                paidTotal: Number(c.paid_total ?? c.paidTotal ?? 0),
+                outstandingPayable: Number(c.outstanding_payable ?? c.outstandingPayable ?? 0),
+              },
+            },
+            status: reviewRecord ? (reviewRecord.status === 'rejected' ? 'rejected' : isQuorum ? 'approved' : 'pending') : 'pending',
+            reviewer_name: reviewRecord?.reviewer_name,
+            reviewed_at: reviewRecord?.reviewed_at,
+            review_notes: reviewRecord?.review_notes,
+            created_at: c.updated_at || c.created_at || new Date().toISOString(),
+            updated_at: c.updated_at || c.created_at || new Date().toISOString(),
+          };
+
+          mergedMap.set(delId, synthesizedContractorApproval);
+        }
+      });
+    } catch (cErr) {
+      console.warn('Notice querying contractors for approvals:', cErr);
+    }
+
     const allItems = Array.from(mergedMap.values()).map((item) => {
       const approvers = item.approvers || (item.initiator_name ? [item.initiator_name] : ['Initiating Director']);
       const count = item.approvals_count || approvers.length;
@@ -216,129 +347,11 @@ export async function GET(req: NextRequest) {
     });
   } catch (err: any) {
     console.warn('Notice in approvals GET:', err);
-    return NextResponse.json({ success: true, data: getApprovalsCache(), count: getApprovalsCache().length });
-  }
-}
-
-export async function POST(req: NextRequest) {
-  try {
-    const body = await req.json();
-    const {
-      entityType,
-      entityId,
-      entityReference,
-      entityName,
-      actionType,
-      initiatorId,
-      initiatorName,
-      initiatorRole,
-      details,
-    } = body;
-
-    const adminSupabase = createAdminClient();
-
-    let actorId = initiatorId;
-    if (!actorId) {
-      try {
-        const serverClient = createServerSupabaseClient();
-        const {
-          data: { user },
-        } = await serverClient.auth.getUser();
-        if (user) actorId = user.id;
-      } catch {
-        // fallback
-      }
-    }
-
-    const finalInitiatorName = initiatorName || 'Director';
-    const finalInitiatorRole = initiatorRole || 'Director';
-
-    const newApproval = {
-      id: `mod-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
-      company_id: COMPANY_ID,
-      entity_type: entityType,
-      entity_id: String(entityId),
-      entity_reference: entityReference || 'REF',
-      entity_name: entityName || 'Financial Entity',
-      action_type: actionType, // 'create' | 'update' | 'delete'
-      initiator_id: actorId || null,
-      initiator_name: finalInitiatorName,
-      initiator_role: finalInitiatorRole,
-      approvers: [finalInitiatorName],
-      approvals_count: 1,
-      required_approvals: 3,
-      details: details || {},
-      status: 'pending',
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    };
-
-    // Try inserting into database table
-    try {
-      const { data, error } = await adminSupabase
-        .from('modification_approvals')
-        .insert({
-          company_id: COMPANY_ID,
-          entity_type: entityType,
-          entity_id: String(entityId),
-          entity_reference: entityReference || 'REF',
-          entity_name: entityName || 'Financial Entity',
-          action_type: actionType,
-          initiator_id: actorId || null,
-          initiator_name: finalInitiatorName,
-          initiator_role: finalInitiatorRole,
-          details: {
-            ...(details || {}),
-            approvers: [finalInitiatorName],
-            approvals_count: 1,
-            required_approvals: 3,
-          },
-          status: 'pending',
-        })
-        .select()
-        .single();
-
-      if (!error && data) {
-        newApproval.id = data.id;
-      }
-    } catch (dbErr) {
-      console.warn('Notice inserting modification approval to DB table:', dbErr);
-    }
-
-    // Keep in persistent global cache
-    const currentCache = getApprovalsCache();
-    setApprovalsCache([newApproval, ...currentCache.filter((a) => a.id !== newApproval.id)]);
-
-    // Write immutable record into audit_logs
-    try {
-      const auditPayload: any = {
-        company_id: COMPANY_ID,
-        actor_id: actorId || 'a68e15d7-578e-4f20-a5a9-f44d97b1e9c3',
-        actor_name: finalInitiatorName,
-        actor_role: finalInitiatorRole,
-        action: `${actionType.toUpperCase()}_${entityType.toUpperCase()}`,
-        entity_type: entityType,
-        entity_id: entityReference || String(entityId),
-        reason: details?.changesSummary || `Director initiated ${actionType} on ${entityType}`,
-        before_values: details?.before || null,
-        after_values: details?.after || null,
-        timestamp: new Date().toISOString(),
-      };
-
-      let { error: aErr } = await adminSupabase.from('audit_logs').insert(auditPayload);
-      if (aErr && (aErr.message.includes('actor_name') || aErr.message.includes('actor_role'))) {
-        delete auditPayload.actor_name;
-        delete auditPayload.actor_role;
-        await adminSupabase.from('audit_logs').insert(auditPayload);
-      }
-    } catch (auditErr) {
-      console.warn('Notice writing to audit_logs:', auditErr);
-    }
-
-    return NextResponse.json({ success: true, data: newApproval }, { status: 201 });
-  } catch (err: any) {
-    console.error('Error creating approval notice:', err);
-    return NextResponse.json({ error: err.message || 'Internal error' }, { status: 500 });
+    return NextResponse.json({
+      success: true,
+      data: [],
+      count: 0,
+    });
   }
 }
 
@@ -357,7 +370,12 @@ export async function PATCH(req: NextRequest) {
 
     // 1. Locate the approval record to determine action type and initiator
     const currentCache = getApprovalsCache();
-    let targetApproval: any = currentCache.find((a) => a.id === id || a.entity_id === id);
+    const localApprovals = readLocalApprovals();
+
+    let targetApproval: any =
+      currentCache.find((a) => a.id === id || a.entity_id === id) ||
+      localApprovals.find((a) => a.id === id || a.entity_id === id);
+
     if (!targetApproval) {
       try {
         const { data: dbItem } = await adminSupabase
@@ -400,7 +418,7 @@ export async function PATCH(req: NextRequest) {
       const peerApprovers = updatedApprovers.filter((n) => n.toLowerCase() !== initiatorName.toLowerCase());
       finalNotes = isQuorumReached
         ? `Board Quorum (3/5) achieved! Approved by ${updatedApprovers.join(', ')}.`
-        : `Peer approval (1/2) recorded by ${finalReviewerName}. Total: 2/3. Awaiting 1 more peer approval.`;
+        : `Peer approval (${peerApprovers.length}/2) recorded by ${finalReviewerName}. Total: ${count}/3. Awaiting peer sign-off.`;
     } else if (status === 'rejected') {
       finalStatus = 'rejected';
       finalNotes = reviewNotes || `Flagged for clarification by ${finalReviewerName}`;
@@ -426,6 +444,22 @@ export async function PATCH(req: NextRequest) {
           if (txnId) {
             await adminSupabase.from('transactions').delete().eq('id', txnId);
           }
+        } else if (entityType === 'contractor') {
+          await adminSupabase.from('contractors').delete().eq('id', entityId);
+          try {
+            const dataFile = path.join(process.cwd(), 'data', 'contractors.json');
+            if (fs.existsSync(dataFile)) {
+              const list = JSON.parse(fs.readFileSync(dataFile, 'utf-8'));
+              if (Array.isArray(list)) {
+                fs.writeFileSync(dataFile, JSON.stringify(list.filter((c: any) => String(c.id) !== String(entityId)), null, 2), 'utf-8');
+              }
+            }
+            if ((globalThis as any).__devplux_contractors_cache__) {
+              (globalThis as any).__devplux_contractors_cache__ = (globalThis as any).__devplux_contractors_cache__.filter((c: any) => String(c.id) !== String(entityId));
+            }
+          } catch {
+            // ignore
+          }
         }
       } catch (delErr) {
         console.warn('Notice executing hard delete on approved modification:', delErr);
@@ -448,6 +482,23 @@ export async function PATCH(req: NextRequest) {
           const txnId = targetApproval.details?.before?.transaction_id || targetApproval.details?.before?.transactionId;
           if (txnId) {
             await adminSupabase.from('transactions').update({ status: 'posted' }).eq('id', txnId);
+          }
+        } else if (entityType === 'contractor') {
+          await adminSupabase.from('contractors').update({ status: 'active' }).eq('id', entityId);
+          try {
+            const dataFile = path.join(process.cwd(), 'data', 'contractors.json');
+            if (fs.existsSync(dataFile)) {
+              const list = JSON.parse(fs.readFileSync(dataFile, 'utf-8'));
+              if (Array.isArray(list)) {
+                const updated = list.map((c: any) => String(c.id) === String(entityId) ? { ...c, status: 'active' } : c);
+                fs.writeFileSync(dataFile, JSON.stringify(updated, null, 2), 'utf-8');
+              }
+            }
+            if ((globalThis as any).__devplux_contractors_cache__) {
+              (globalThis as any).__devplux_contractors_cache__ = (globalThis as any).__devplux_contractors_cache__.map((c: any) => String(c.id) === String(entityId) ? { ...c, status: 'active' } : c);
+            }
+          } catch {
+            // ignore
           }
         }
       } catch (restoreErr) {
@@ -474,12 +525,12 @@ export async function PATCH(req: NextRequest) {
             flagged_by: status === 'rejected' ? finalReviewerName : null,
           },
         })
-        .eq('id', id);
+        .or(`id.eq.${id},entity_id.eq.${id}`);
     } catch (dbErr) {
       console.warn('Notice updating DB modification approval:', dbErr);
     }
 
-    // 6. Update in global reviewed map and persistent cache
+    // 6. Update in persistent approvals file, global reviewed map, and memory cache
     const reviewedMap = getReviewedMap();
     const reviewData = {
       status: finalStatus,
@@ -491,14 +542,38 @@ export async function PATCH(req: NextRequest) {
       required_approvals: 3,
       flagged_by: status === 'rejected' ? finalReviewerName : null,
     };
+
     reviewedMap.set(id, reviewData);
     if (targetApproval?.entity_id) {
       reviewedMap.set(targetApproval.entity_id, reviewData);
-      reviewedMap.set(`appr-${targetApproval.entity_id}`, reviewData);
+      reviewedMap.set(`appr-del-cnt-${targetApproval.entity_id}`, reviewData);
     }
     if (targetApproval?.entity_reference) {
       reviewedMap.set(targetApproval.entity_reference, reviewData);
     }
+
+    // Update in local file
+    try {
+      const apps = readLocalApprovals();
+      const updated = apps.map((item: any) => {
+        if (item.id === id || item.entity_id === id || (targetApproval && item.id === targetApproval.id)) {
+          return {
+            ...item,
+            status: finalStatus,
+            reviewer_name: updatedApprovers.join(', '),
+            reviewed_at: reviewedAt,
+            review_notes: finalNotes,
+            approvers: updatedApprovers,
+            approvals_count: updatedApprovers.length,
+            required_approvals: 3,
+            flagged_by: status === 'rejected' ? finalReviewerName : null,
+            updated_at: reviewedAt,
+          };
+        }
+        return item;
+      });
+      writeLocalApprovals(updated);
+    } catch {}
 
     setApprovalsCache(
       currentCache.map((item) => {

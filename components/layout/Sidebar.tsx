@@ -30,6 +30,7 @@ interface SidebarProps {
   userRole?: DirectorRole;
   userName?: string;
   userEmail?: string;
+  userAvatar?: string;
   onLogout?: () => void;
   isCollapsed?: boolean;
   onToggleCollapse?: () => void;
@@ -44,6 +45,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   userRole = 'director',
   userName = '',
   userEmail = '',
+  userAvatar = '',
   onLogout,
   isCollapsed = false,
   onToggleCollapse,
@@ -53,10 +55,31 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const pathname = usePathname();
   const [pendingApprovalsCount, setPendingApprovalsCount] = useState<number>(0);
   const [mounted, setMounted] = useState<boolean>(() => isSidebarHydrated);
+  const [localAvatar, setLocalAvatar] = useState<string>(() => {
+    if (!isSidebarHydrated) return userAvatar || '';
+    const stored = getStoredDirector();
+    return userAvatar || stored?.avatarUrl || '';
+  });
 
   useEffect(() => {
     isSidebarHydrated = true;
     setMounted(true);
+  }, []);
+
+  useEffect(() => {
+    if (userAvatar !== undefined) {
+      setLocalAvatar(userAvatar);
+    }
+  }, [userAvatar]);
+
+  useEffect(() => {
+    const handleDirectorUpdate = (e: any) => {
+      if (e.detail?.avatarUrl !== undefined) {
+        setLocalAvatar(e.detail.avatarUrl || '');
+      }
+    };
+    window.addEventListener('devplux-director-updated', handleDirectorUpdate);
+    return () => window.removeEventListener('devplux-director-updated', handleDirectorUpdate);
   }, []);
 
   // Synchronously resolve real director name with zero lag; gate by mounted state to eliminate SSR hydration mismatch
@@ -68,6 +91,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
         ? stored.name
         : userName || '')
     : (userName && !userName.toLowerCase().startsWith('director') ? userName : '');
+
+  const effectiveAvatar = mounted ? (localAvatar || userAvatar || stored?.avatarUrl || '') : '';
 
   useEffect(() => {
     const fetchPending = async () => {
@@ -301,13 +326,28 @@ export const Sidebar: React.FC<SidebarProps> = ({
               isCollapsed && !isMobileOpen ? 'justify-center p-1' : 'justify-between px-2 py-1.5'
             )}
           >
-            <div className="flex items-center gap-2.5 overflow-hidden">
+            <Link
+              href="/profile"
+              onClick={() => {
+                if (onCloseMobile) onCloseMobile();
+              }}
+              title={effectiveName ? `${effectiveName} (${roleLabels[userRole] || userRole}) — Click to view & edit profile` : 'Authenticated Director Profile'}
+              className="flex items-center gap-2.5 overflow-hidden flex-1 group"
+            >
               <div
                 suppressHydrationWarning
-                title={effectiveName ? `${effectiveName} (${roleLabels[userRole] || userRole})` : 'Authenticated Director'}
-                className="w-8 h-8 rounded-full bg-slate-800 border border-slate-700 flex items-center justify-center text-xs font-bold text-white shrink-0"
+                className="w-8 h-8 rounded-full bg-slate-800 border border-slate-700 group-hover:border-blue-500 transition-colors flex items-center justify-center text-xs font-bold text-white shrink-0 overflow-hidden relative"
               >
-                {effectiveName ? (
+                {effectiveAvatar ? (
+                  <img
+                    src={effectiveAvatar}
+                    alt={effectiveName || 'Director'}
+                    className="w-full h-full object-cover"
+                    onError={(e) => {
+                      (e.target as HTMLElement).style.display = 'none';
+                    }}
+                  />
+                ) : effectiveName ? (
                   getDirectorInitial(effectiveName)
                 ) : (
                   <div className="w-3.5 h-3.5 rounded-full bg-slate-700 animate-pulse" />
@@ -317,7 +357,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 <div suppressHydrationWarning className="truncate flex-1 min-w-0">
                   {effectiveName ? (
                     <>
-                      <p className="text-xs font-medium text-white truncate">{effectiveName}</p>
+                      <p className="text-xs font-medium text-white group-hover:text-blue-400 transition-colors truncate">
+                        {effectiveName}
+                      </p>
                       <p className="text-[10px] text-blue-400 truncate font-semibold">
                         {roleLabels[userRole] || userRole}
                       </p>
@@ -330,7 +372,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   )}
                 </div>
               )}
-            </div>
+            </Link>
 
             {(!isCollapsed || isMobileOpen) && (
               <button

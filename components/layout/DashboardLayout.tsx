@@ -20,6 +20,7 @@ interface DashboardLayoutProps {
   userRole?: DirectorRole;
   userName?: string;
   userEmail?: string;
+  userAvatar?: string;
 }
 
 // Global client hydration tracker across route changes
@@ -32,6 +33,7 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({
   userRole,
   userName,
   userEmail,
+  userAvatar,
 }) => {
   const router = useRouter();
   const [isCollapsed, setIsCollapsed] = useState(false);
@@ -58,6 +60,14 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({
     if (stored?.email) return stored.email;
     return userEmail || '';
   });
+  const [currentAvatar, setCurrentAvatar] = useState<string>(() => {
+    if (!isLayoutHydrated) {
+      return userAvatar || '';
+    }
+    if (userAvatar) return userAvatar;
+    const stored = getStoredDirector();
+    return stored?.avatarUrl || '';
+  });
 
   useEffect(() => {
     let isMounted = true;
@@ -68,7 +78,17 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({
     if (stored?.name && !currentName) {
       setCurrentName(stored.name);
       if (stored.email) setCurrentEmail(stored.email);
+      if (stored.avatarUrl) setCurrentAvatar(stored.avatarUrl);
     }
+
+    const handleDirectorUpdate = (e: any) => {
+      if (e.detail && isMounted) {
+        if (e.detail.name) setCurrentName(e.detail.name);
+        if (e.detail.email) setCurrentEmail(e.detail.email);
+        if (e.detail.avatarUrl !== undefined) setCurrentAvatar(e.detail.avatarUrl || '');
+      }
+    };
+    window.addEventListener('devplux-director-updated', handleDirectorUpdate);
 
     const loadAuthUser = async () => {
       try {
@@ -80,11 +100,13 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({
             setCurrentRole('director');
             setCurrentName(json.user.name);
             setCurrentEmail(json.user.email);
+            if (json.user.avatarUrl) setCurrentAvatar(json.user.avatarUrl);
             setStoredDirector({
               id: json.user.id,
               name: json.user.name,
               email: json.user.email,
               role: json.user.role || 'Director',
+              avatarUrl: json.user.avatarUrl || undefined,
             });
             return;
           }
@@ -98,20 +120,24 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({
 
         if (user && isMounted) {
           const email = user.email || '';
+          const customName = user.user_metadata?.full_name;
           const mappedName =
-            CANONICAL_MAP[email.toLowerCase()] ||
-            user.user_metadata?.full_name ||
-            '';
+            (customName && !customName.toLowerCase().startsWith('director'))
+              ? customName
+              : (CANONICAL_MAP[email.toLowerCase()] || customName || '');
+          const avatar = user.user_metadata?.avatar_url || '';
 
           if (mappedName) {
             setCurrentRole('director');
             setCurrentName(mappedName);
             setCurrentEmail(email);
+            if (avatar) setCurrentAvatar(avatar);
             setStoredDirector({
               id: user.id,
               name: mappedName,
               email: email,
               role: 'Director',
+              avatarUrl: avatar || undefined,
             });
           }
         }
@@ -124,6 +150,7 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({
 
     return () => {
       isMounted = false;
+      window.removeEventListener('devplux-director-updated', handleDirectorUpdate);
     };
   }, []);
 
@@ -180,6 +207,7 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({
         userRole={currentRole}
         userName={currentName}
         userEmail={currentEmail}
+        userAvatar={currentAvatar}
         onLogout={handleLogout}
         isCollapsed={isCollapsed}
         onToggleCollapse={handleToggleCollapse}

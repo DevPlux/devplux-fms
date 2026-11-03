@@ -1,0 +1,33 @@
+[
+  {
+    "id": "appr-del-cnt-018399d7-26c0-44f3-bbcb-f9c17579bb9e",
+    "company_id": "a0000000-0000-0000-0000-000000000001",
+    "entity_type": "contractor",
+    "entity_id": "018399d7-26c0-44f3-bbcb-f9c17579bb9e",
+    "entity_reference": "DEL-CNT-018399d7",
+    "entity_name": "Amal (General)",
+    "action_type": "delete",
+    "initiator_name": "Mr. Chanuka Lakshan",
+    "initiator_role": "Director",
+    "approvers": [
+      "Mr. Chanuka Lakshan"
+    ],
+    "approvals_count": 1,
+    "required_approvals": 3,
+    "status": "pending",
+    "details": {
+      "changesSummary": "Contractor removal request for Amal (General) initiated by Mr. Chanuka Lakshan. Awaiting 3/5 Board Quorum.",
+      "reason": "Contract concluded / Contractor removal requested",
+      "before": {
+        "contractorName": "Amal",
+        "project": "General",
+        "agreedFee": 20000,
+        "paidTotal": 20000,
+        "outstandingPayable": 0
+      }
+    },
+    "created_at": "2026-11-03T06:18:41.872Z",
+    "updated_at": "2026-11-03T06:18:41.872Z"
+  }
+]
+

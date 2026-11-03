@@ -25,6 +25,11 @@ CREATE TABLE IF NOT EXISTS public.modification_approvals (
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+-- Remove legacy restrictive check constraints so all governance entities (contractors, disbursements) are accepted
+ALTER TABLE public.modification_approvals 
+    DROP CONSTRAINT IF EXISTS modification_approvals_entity_type_check,
+    DROP CONSTRAINT IF EXISTS modification_approvals_action_type_check;
+
 -- Enable Row Level Security
 ALTER TABLE public.modification_approvals ENABLE ROW LEVEL SECURITY;
 
@@ -39,4 +44,3 @@ CREATE POLICY "Allow all on modification_approvals"
 -- Index for speedy queries on status and entity
 CREATE INDEX IF NOT EXISTS idx_modification_approvals_status ON public.modification_approvals(status);
 CREATE INDEX IF NOT EXISTS idx_modification_approvals_created ON public.modification_approvals(created_at DESC);
-

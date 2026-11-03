@@ -1,0 +1,19 @@
+[
+  {
+    "id": "018399d7-26c0-44f3-bbcb-f9c17579bb9e",
+    "name": "Amal",
+    "email": "Amal@gmail.com",
+    "phone": "0711234567",
+    "skillSet": "Developer",
+    "projectId": null,
+    "projectDisplayId": "General",
+    "projectName": "Project General",
+    "agreedFee": 20000,
+    "invoicedTotal": 20000,
+    "paidTotal": 20000,
+    "outstandingPayable": 0,
+    "receiptUrl": null,
+    "status": "pending_deletion",
+    "createdAt": "2026-11-03T06:18:41.872764+00:00"
+  }
+]

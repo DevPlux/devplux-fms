@@ -6,6 +6,7 @@ export interface CurrentDirector {
   name: string;
   email: string;
   role: string;
+  avatarUrl?: string;
 }
 
 export const CANONICAL_MAP: Record<string, string> = {
@@ -65,10 +66,12 @@ export function getStoredDirector(): CurrentDirector | null {
           const parsed = JSON.parse(item);
           const email = (parsed?.user?.email || '').trim().toLowerCase();
           if (email) {
+            const customName = parsed?.user?.user_metadata?.full_name;
             const canonicalName =
-              CANONICAL_MAP[email] ||
-              parsed?.user?.user_metadata?.full_name ||
-              '';
+              (customName && !customName.toLowerCase().startsWith('director'))
+                ? customName
+                : (CANONICAL_MAP[email] || customName || '');
+            const avatarUrl = parsed?.user?.user_metadata?.avatar_url || undefined;
             if (
               canonicalName &&
               !canonicalName.toLowerCase().startsWith('director')
@@ -78,6 +81,7 @@ export function getStoredDirector(): CurrentDirector | null {
                 name: canonicalName,
                 email: email,
                 role: 'Director',
+                avatarUrl,
               };
               cachedDirectorMemory = director;
               try {
@@ -106,6 +110,7 @@ export function setStoredDirector(director: CurrentDirector) {
   if (typeof window !== 'undefined') {
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(director));
+      window.dispatchEvent(new CustomEvent('devplux-director-updated', { detail: director }));
     } catch {
       // ignore
     }
@@ -160,6 +165,13 @@ export function useCurrentDirector() {
       setLoading(false);
     }
 
+    const handleDirectorUpdate = (e: any) => {
+      if (e.detail && isMounted) {
+        setDirector(e.detail);
+      }
+    };
+    window.addEventListener('devplux-director-updated', handleDirectorUpdate);
+
     async function load() {
       try {
         const res = await fetch('/api/auth/me');
@@ -171,6 +183,7 @@ export function useCurrentDirector() {
               name: json.user.name,
               email: json.user.email,
               role: json.user.role || 'Director',
+              avatarUrl: json.user.avatarUrl || undefined,
             };
             setStoredDirector(resolved);
             setDirector(resolved);
@@ -187,10 +200,11 @@ export function useCurrentDirector() {
 
         if (user && isMounted) {
           const email = user.email || '';
+          const customName = user.user_metadata?.full_name;
           const mappedName =
-            CANONICAL_MAP[email.toLowerCase()] ||
-            user.user_metadata?.full_name ||
-            '';
+            (customName && !customName.toLowerCase().startsWith('director'))
+              ? customName
+              : (CANONICAL_MAP[email.toLowerCase()] || customName || '');
 
           if (mappedName) {
             const resolved: CurrentDirector = {
@@ -198,6 +212,7 @@ export function useCurrentDirector() {
               name: mappedName,
               email: email,
               role: 'Director',
+              avatarUrl: user.user_metadata?.avatar_url || undefined,
             };
             setStoredDirector(resolved);
             setDirector(resolved);
@@ -214,6 +229,7 @@ export function useCurrentDirector() {
 
     return () => {
       isMounted = false;
+      window.removeEventListener('devplux-director-updated', handleDirectorUpdate);
     };
   }, []);
 

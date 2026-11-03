@@ -12,6 +12,7 @@ interface DirectorData {
   id: string;
   name: string;
   email: string;
+  avatarUrl?: string;
   role: 'director';
   roleTitle: 'Director';
   sharePercentage: number;
@@ -200,7 +201,18 @@ export default function DirectorsPage() {
               ) : (
                 directors.map((d) => (
                   <tr key={d.id} className="hover:bg-slate-50/80 transition-colors">
-                    <td className="px-6 py-4 font-semibold text-slate-900">{d.name}</td>
+                    <td className="px-6 py-4 font-semibold text-slate-900">
+                      <div className="flex items-center gap-2.5">
+                        <div className="w-7 h-7 rounded-full bg-slate-800 border border-slate-700 text-white flex items-center justify-center text-xs font-bold shrink-0 overflow-hidden">
+                          {d.avatarUrl ? (
+                            <img src={d.avatarUrl} alt={d.name} className="w-full h-full object-cover" />
+                          ) : (
+                            (d.name.replace(/^(mr\.|mr|mrs\.|mrs|ms\.|ms|dr\.|dr|prof\.|prof)\s*/i, '').trim().charAt(0) || 'D').toUpperCase()
+                          )}
+                        </div>
+                        <span className="truncate">{d.name}</span>
+                      </div>
+                    </td>
                     <td className="px-6 py-4 font-mono text-slate-700">{d.email}</td>
                     <td className="px-6 py-4">
                       <span className="font-semibold text-blue-900 bg-blue-50 px-2 py-0.5 rounded text-[11px] border border-blue-100">

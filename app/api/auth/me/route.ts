@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { createAdminClient } from '@/lib/supabase/admin';
+import { getLocalProfileByIdOrEmail } from '@/lib/storage/profile-storage';
 
 export const dynamic = 'force-dynamic';
 
@@ -33,11 +34,24 @@ export async function GET() {
     const emailKey = (user.email || '').toLowerCase().trim();
 
     // 2. Query public.profiles
-    const { data: profile } = await adminSupabase
-      .from('profiles')
-      .select('id, full_name, email, role, must_change_password, is_active')
-      .eq('id', user.id)
-      .maybeSingle();
+    let profile: any = null;
+    try {
+      const { data } = await adminSupabase
+        .from('profiles')
+        .select('id, full_name, email, role, must_change_password, is_active, avatar_url')
+        .eq('id', user.id)
+        .maybeSingle();
+      profile = data;
+    } catch {
+      try {
+        const { data } = await adminSupabase
+          .from('profiles')
+          .select('id, full_name, email, role, must_change_password, is_active')
+          .eq('id', user.id)
+          .maybeSingle();
+        profile = data;
+      } catch {}
+    }
 
     // 3. Query company membership for share allocation
     const { data: membership } = await adminSupabase
@@ -46,20 +60,23 @@ export async function GET() {
       .eq('user_id', user.id)
       .maybeSingle();
 
-    // 4. Resolve exact legal name
+    // 4. Resolve exact legal name and avatar
     const canonical = CANONICAL_DIRECTORS_MAP[emailKey];
-    let resolvedName = profile?.full_name || user.user_metadata?.full_name;
+    const localProfile = getLocalProfileByIdOrEmail(user.id, emailKey);
 
-    if (
-      !resolvedName ||
-      resolvedName.toLowerCase().startsWith('director ') ||
-      (canonical && profile?.full_name !== canonical.name)
-    ) {
+    let resolvedName =
+      profile?.full_name ||
+      localProfile?.name ||
+      user.user_metadata?.full_name;
+
+    const isPlaceholder = !resolvedName || resolvedName.toLowerCase().startsWith('director ');
+
+    if (isPlaceholder) {
       resolvedName = canonical?.name || resolvedName || 'Director';
     }
 
-    // Auto-sync profile name if missing or using old placeholder
-    if (profile && canonical && profile.full_name !== canonical.name) {
+    // Auto-sync profile name if it was a placeholder
+    if (profile && canonical && isPlaceholder) {
       try {
         await adminSupabase
           .from('profiles')
@@ -70,6 +87,12 @@ export async function GET() {
       }
     }
 
+    const resolvedAvatar =
+      profile?.avatar_url ||
+      localProfile?.avatar_url ||
+      user.user_metadata?.avatar_url ||
+      null;
+
     const share = membership?.share_percentage !== undefined ? Number(membership.share_percentage) : 20;
 
     return NextResponse.json({
@@ -79,6 +102,7 @@ export async function GET() {
         id: user.id,
         email: user.email,
         name: resolvedName,
+        avatarUrl: resolvedAvatar,
         role: 'Director',
         roleKey: 'director',
         sharePercentage: `${share.toFixed(2)}%`,

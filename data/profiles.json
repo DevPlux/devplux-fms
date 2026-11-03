@@ -1,0 +1,16 @@
+{
+  "director1@devplux.com": {
+    "id": "a68e15d7-578e-4f20-a5a9-f44d97b1e9c3",
+    "name": "Mr. Chanuka Lakshan",
+    "email": "director1@devplux.com",
+    "avatar_url": "https://fugumwumavekahhsrzta.supabase.co/storage/v1/object/public/avatars/1793699092185_unnamed11112.jpg",
+    "updated_at": "2026-11-03T09:44:59.014Z"
+  },
+  "a68e15d7-578e-4f20-a5a9-f44d97b1e9c3": {
+    "id": "a68e15d7-578e-4f20-a5a9-f44d97b1e9c3",
+    "name": "Mr. Chanuka Lakshan",
+    "email": "director1@devplux.com",
+    "avatar_url": "https://fugumwumavekahhsrzta.supabase.co/storage/v1/object/public/avatars/1793699092185_unnamed11112.jpg",
+    "updated_at": "2026-11-03T09:44:59.014Z"
+  }
+}
