@@ -546,7 +546,7 @@ export default function ExpensesPage() {
                               <Badge variant={e.isPaid ? 'completed' : 'pending'}>{e.isPaid ? 'PAID' : 'PAYABLE'}</Badge>
                             </div>
                             <span className="ml-auto flex shrink-0 items-center gap-1 text-xs font-semibold text-blue-700">
-                         
+
                               {expanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
                        </span>
                           </button>
