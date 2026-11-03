@@ -81,14 +81,14 @@ export const Modal: React.FC<ModalProps> = ({
             )}
         >
           {/* Modal Header */}
-          <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
-            <div>
-              <h3 className="text-base font-semibold text-slate-900">
+          <div className="flex items-start justify-between gap-4 px-6 py-4 border-b border-slate-100">
+            <div className="min-w-0 flex-1">
+              <h3 className="text-base font-semibold text-slate-900 break-words leading-snug">
                 {title}
               </h3>
 
               {description && (
-                  <p className="text-xs text-slate-500 mt-0.5 truncate">
+                  <p className="text-xs text-slate-500 mt-1 break-words leading-relaxed">
                     {description}
                   </p>
               )}
@@ -98,7 +98,7 @@ export const Modal: React.FC<ModalProps> = ({
                 type="button"
                 onClick={onClose}
                 aria-label="Close modal"
-                className="text-slate-400 hover:text-slate-600 transition-colors p-1 rounded-md hover:bg-slate-100"
+                className="shrink-0 text-slate-400 hover:text-slate-600 transition-colors p-1 rounded-md hover:bg-slate-100"
             >
               <X className="w-5 h-5" />
             </button>
