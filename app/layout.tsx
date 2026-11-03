@@ -3,7 +3,7 @@ import './globals.css';
 import { Toaster } from 'sonner';
 
 export const metadata: Metadata = {
-  title: 'Devplux Financial Management System',
+  title: 'Devplux | Financial Management System',
   description: 'Enterprise Financial Management & Corporate Accounting for Devplux (Pvt) Ltd',
   icons: {
     icon: '/Logo.webp',
