@@ -1,5 +1,37 @@
 [
   {
+    "id": "appr-cnt-1a68fb53-72dd-46be-baf1-5c7b3aa47c8d",
+    "company_id": "a0000000-0000-0000-0000-000000000001",
+    "entity_type": "contractor",
+    "entity_id": "1a68fb53-72dd-46be-baf1-5c7b3aa47c8d",
+    "entity_reference": "CNT-889673",
+    "entity_name": "kasun (General)",
+    "action_type": "create",
+    "initiator_name": "Mr. Chanuka Lakshan",
+    "initiator_role": "Director",
+    "details": {
+      "changesSummary": "New external contractor kasun registered for project General with committed fee of LKR 1,000.",
+      "reason": "Contract developer onboarding for project scope deliverable.",
+      "after": {
+        "name": "kasun",
+        "skillSet": "developer",
+        "project": "General",
+        "agreedFee": 1000,
+        "invoicedTotal": 1000,
+        "paidTotal": 0,
+        "outstandingPayable": 1000,
+        "status": "active"
+      }
+    },
+    "created_at": "2026-11-03T13:51:29.674Z",
+    "status": "pending",
+    "approvers": [
+      "Mr. Chanuka Lakshan"
+    ],
+    "approvals_count": 1,
+    "required_approvals": 3
+  },
+  {
     "id": "appr-del-cnt-018399d7-26c0-44f3-bbcb-f9c17579bb9e",
     "company_id": "a0000000-0000-0000-0000-000000000001",
     "entity_type": "contractor",
@@ -30,4 +62,3 @@
     "updated_at": "2026-11-03T06:18:41.872Z"
   }
 ]
-
