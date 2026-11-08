@@ -18,8 +18,6 @@
 # 2. ENVIRONMENT VARIABLES & SECRETS (STRICT SECURITY)
 # Never commit real credentials, Supabase service keys, or director passwords!
 # ------------------------------------------------------------------------------
-.env
-.env.local
 .env.example
 .env.development.local
 .env.test.local
@@ -83,7 +81,6 @@ lerna-debug.log*
 # 9. EDITORS & IDE CONFIGURATIONS
 # ------------------------------------------------------------------------------
 .idea/
-.vscode/*
 !.vscode/extensions.json
 !.vscode/settings.json
 *.sublime-project
@@ -121,3 +118,4 @@ $RECYCLE.BIN/
 *.orig
 *~
 
+config.bat
