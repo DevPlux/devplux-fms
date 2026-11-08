@@ -1,0 +1,123 @@
+[
+  {
+    "id": "audit-1793713890329-sec4k",
+    "company_id": "a0000000-0000-0000-0000-000000000001",
+    "actor_id": null,
+    "actor_name": "Mr. Chanuka Lakshan",
+    "actor_role": "Director",
+    "action": "REGISTER_CONTRACTOR",
+    "entity_type": "contractor",
+    "entity_id": "1a68fb53-72dd-46be-baf1-5c7b3aa47c8d",
+    "reason": "New external contractor kasun registered for project General with committed fee of LKR 1,000.",
+    "before_values": null,
+    "after_values": {
+      "name": "kasun",
+      "agreedFee": 1000,
+      "project": "General",
+      "outstandingPayable": 1000
+    },
+    "timestamp": "2026-11-03T13:51:30.329Z"
+  },
+  {
+    "id": "audit-hist-profile-update",
+    "company_id": "a0000000-0000-0000-0000-000000000001",
+    "actor_id": "a68e15d7-578e-4f20-a5a9-f44d97b1e9c3",
+    "actor_name": "Mr. Chanuka Lakshan",
+    "actor_role": "Director",
+    "action": "DIRECTOR_PROFILE_UPDATED",
+    "entity_type": "profile",
+    "entity_id": "a68e15d7-578e-4f20-a5a9-f44d97b1e9c3",
+    "reason": "Director profile details and corporate identity photo updated in secure store",
+    "before_values": {
+      "legalName": "Director 1",
+      "avatar": "Default monogram initial"
+    },
+    "after_values": {
+      "legalName": "Mr. Chanuka Lakshan",
+      "avatar": "Updated corporate headshot"
+    },
+    "timestamp": "2026-11-03T09:44:59.014Z"
+  },
+  {
+    "id": "audit-hist-contractor-removal",
+    "company_id": "a0000000-0000-0000-0000-000000000001",
+    "actor_id": "a68e15d7-578e-4f20-a5a9-f44d97b1e9c3",
+    "actor_name": "Mr. Chanuka Lakshan",
+    "actor_role": "Director",
+    "action": "CONTRACTOR_REMOVAL_REQUESTED",
+    "entity_type": "contractor",
+    "entity_id": "018399d7-26c0-44f3-bbcb-f9c17579bb9e",
+    "reason": "Contractor removal request for Amal (Project General) submitted. Pending 3/5 Board Quorum.",
+    "before_values": {
+      "contractorName": "Amal",
+      "status": "active",
+      "paidTotal": 20000
+    },
+    "after_values": {
+      "contractorName": "Amal",
+      "status": "pending_deletion",
+      "requiredApprovals": 3
+    },
+    "timestamp": "2026-11-03T06:18:41.872Z"
+  },
+  {
+    "id": "audit-hist-contractor-payment",
+    "company_id": "a0000000-0000-0000-0000-000000000001",
+    "actor_id": "a68e15d7-578e-4f20-a5a9-f44d97b1e9c3",
+    "actor_name": "Mr. Chanuka Lakshan",
+    "actor_role": "Director",
+    "action": "RECORD_EXPENSE",
+    "entity_type": "contractor_disbursement",
+    "entity_id": "018399d7-26c0-44f3-bbcb-f9c17579bb9e",
+    "reason": "Contractor payment disbursed for Amal (Development Services for Project General)",
+    "before_values": {
+      "paidTotal": 0,
+      "outstandingPayable": 20000
+    },
+    "after_values": {
+      "disbursedAmount": 20000,
+      "paidTotal": 20000,
+      "outstandingPayable": 0,
+      "paymentStatus": "PAID"
+    },
+    "timestamp": "2026-11-03T05:30:00.000Z"
+  },
+  {
+    "id": "audit-hist-contractor-register",
+    "company_id": "a0000000-0000-0000-0000-000000000001",
+    "actor_id": "a68e15d7-578e-4f20-a5a9-f44d97b1e9c3",
+    "actor_name": "Mr. Chanuka Lakshan",
+    "actor_role": "Director",
+    "action": "REGISTER_CONTRACTOR",
+    "entity_type": "contractor",
+    "entity_id": "018399d7-26c0-44f3-bbcb-f9c17579bb9e",
+    "reason": "New external contractor Amal onboarded for Project General",
+    "before_values": null,
+    "after_values": {
+      "name": "Amal",
+      "skillSet": "Developer",
+      "agreedFee": 20000,
+      "phone": "0711234567"
+    },
+    "timestamp": "2026-11-03T04:15:00.000Z"
+  },
+  {
+    "id": "audit-hist-board-init",
+    "company_id": "a0000000-0000-0000-0000-000000000001",
+    "actor_id": "a68e15d7-578e-4f20-a5a9-f44d97b1e9c3",
+    "actor_name": "Governance System",
+    "actor_role": "Corporate Secretary",
+    "action": "BOARD_GOVERNANCE_INITIALIZED",
+    "entity_type": "company",
+    "entity_id": "a0000000-0000-0000-0000-000000000001",
+    "reason": "Devplux (Pvt) Ltd (PV-00289144) Board of Directors established with 5 equal equity shares (20% each)",
+    "before_values": null,
+    "after_values": {
+      "company": "Devplux (Pvt) Ltd",
+      "registrationNo": "PV-00289144",
+      "directorsCount": 5,
+      "defaultQuorumRequirement": 3
+    },
+    "timestamp": "2026-10-27T08:00:00.000Z"
+  }
+]

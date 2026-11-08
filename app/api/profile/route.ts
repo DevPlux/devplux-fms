@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { getLocalProfileByIdOrEmail, saveLocalProfile } from '@/lib/storage/profile-storage';
+import { recordAuditLog } from '@/lib/audit/audit-logger';
 
 export const dynamic = 'force-dynamic';
 
@@ -211,16 +212,24 @@ export async function PATCH(req: NextRequest) {
 
     // 5. Append to audit trail
     try {
-      await adminSupabase.from('audit_logs').insert({
-        company_id: COMPANY_ID,
-        actor_id: user.id,
-        actor_name: updatedName || user.user_metadata?.full_name || 'Director',
-        actor_role: 'Director Profile Settings',
+      await recordAuditLog({
+        companyId: COMPANY_ID,
+        actorId: user.id,
+        actorName: updatedName || user.user_metadata?.full_name || 'Director',
+        actorRole: 'Director Profile Settings',
         action: 'DIRECTOR_PROFILE_UPDATED',
-        entity_type: 'profile',
-        entity_id: user.id,
+        entityType: 'profile',
+        entityId: user.id,
         reason: `Director updated profile details (Legal Name: ${updatedName || 'unchanged'}, Photo: ${avatarUrl ? 'updated' : avatarUrl === null ? 'removed' : 'unchanged'}, Password: ${newPassword ? 'changed' : 'unchanged'})`,
         timestamp: nowIso,
+        beforeValues: {
+          legalName: 'Mr. Chanuka Lakshan',
+        },
+        afterValues: {
+          legalName: updatedName,
+          photoUpdated: Boolean(avatarUrl),
+          passwordUpdated: Boolean(newPassword),
+        },
       });
     } catch (auditErr) {
       console.warn('Notice recording profile update to audit_logs:', auditErr);

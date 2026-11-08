@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
+import { recordAuditLog } from '@/lib/audit/audit-logger';
 import fs from 'fs';
 import path from 'path';
 
@@ -597,14 +598,14 @@ export async function PATCH(req: NextRequest) {
 
     // 7. Append sign-off to immutable audit_logs
     try {
-      await adminSupabase.from('audit_logs').insert({
-        company_id: COMPANY_ID,
-        actor_id: reviewerId || 'b11e15d7-578e-4f20-a5a9-f44d97b1e9d4',
-        actor_name: finalReviewerName,
-        actor_role: 'Director Sign-off',
+      await recordAuditLog({
+        companyId: COMPANY_ID,
+        actorId: reviewerId || 'b11e15d7-578e-4f20-a5a9-f44d97b1e9d4',
+        actorName: finalReviewerName,
+        actorRole: 'Director Sign-off',
         action: `DIRECTOR_${status.toUpperCase()}_MODIFICATION`,
-        entity_type: 'modification_approval',
-        entity_id: String(id),
+        entityType: 'modification_approval',
+        entityId: String(id),
         reason: `${finalReviewerName} ${status === 'approved' ? (isQuorumReached ? 'approved (Board Quorum 3/5 achieved)' : 'approved (Peer Sign-off 1/2)') : 'flagged'}: ${finalNotes}`,
         timestamp: reviewedAt,
       });

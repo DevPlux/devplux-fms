@@ -127,8 +127,9 @@ export default function AuditLogPage() {
       (actionFilter === 'PAYMENTS' && (l.action.includes('PAYMENT') || l.action.includes('INCOME'))) ||
       (actionFilter === 'EXPENSES' && l.action.includes('EXPENSE')) ||
       (actionFilter === 'PROJECTS' && l.action.includes('PROJECT')) ||
-      (actionFilter === 'DELETIONS' && (l.action.includes('DELETE') || l.action.includes('REVERSE'))) ||
-      (actionFilter === 'APPROVALS' && l.action.includes('APPROVE'));
+      (actionFilter === 'DELETIONS' && (l.action.includes('DELETE') || l.action.includes('REVERSE') || l.action.includes('REMOVAL'))) ||
+      (actionFilter === 'APPROVALS' && l.action.includes('APPROVE')) ||
+      (actionFilter === 'GOVERNANCE' && (l.action.includes('PROFILE') || l.action.includes('BOARD') || l.action.includes('REGISTER')));
 
     return matchesSearch && matchesAction;
   });
@@ -217,11 +218,12 @@ export default function AuditLogPage() {
             className="text-xs bg-slate-50 border border-slate-300 rounded-md px-2.5 py-1.5 text-slate-700 font-medium"
           >
             <option value="all">All Audit Actions</option>
-            <option value="PROJECTS">Project Actions (Create / Update / Delete)</option>
-            <option value="PAYMENTS">Client Income Payments</option>
-            <option value="EXPENSES">Operating Expenses</option>
-            <option value="DELETIONS">Deletions & Reversals</option>
             <option value="APPROVALS">Board Approvals & Sign-offs</option>
+            <option value="EXPENSES">Operating & Contractor Expenses</option>
+            <option value="PAYMENTS">Client Income Payments</option>
+            <option value="PROJECTS">Project Actions (Create / Update / Delete)</option>
+            <option value="DELETIONS">Deletions & Reversals</option>
+            <option value="GOVERNANCE">Director Profile & Governance</option>
           </select>
         </div>
 
